@@ -1,4 +1,6 @@
-# Pulse
+# Deskmon
+
+> **Desk**top **Mon**itoring — your servers, at a glance.
 
 **Native macOS menu bar app for monitoring your home servers.**
 
@@ -137,7 +139,7 @@ Built with Swift and SwiftUI. Feels like a first-party Apple app. Follows macOS 
                         │ HTTP/JSON (LAN)
                         ▼
 ┌─────────────────────────────────────────────────────────┐
-│                    Pulse Agent                          │
+│                    Deskmon Agent                          │
 │                  (Go - Open Source)                     │
 │  ┌─────────────┬─────────────┬─────────────────────┐   │
 │  │   System    │   Docker    │    Integrations     │   │
@@ -252,10 +254,10 @@ GET /stats/pihole    → Pihole integration stats
 ## 📁 Repository Structure
 
 ```
-pulse/
+deskmon/
 ├── agent/                 # Go agent (open source)
 │   ├── cmd/
-│   │   └── pulse-agent/
+│   │   └── deskmon-agent/
 │   ├── internal/
 │   │   ├── collectors/
 │   │   ├── integrations/
@@ -281,7 +283,7 @@ pulse/
 
 ## 🤝 Competition & Differentiation
 
-| Feature | Pulse | iStatMenus | Beszel | Zabbix Monitor |
+| Feature | Deskmon | iStatMenus | Beszel | Zabbix Monitor |
 |---------|-------|------------|--------|----------------|
 | Remote servers | ✅ | ❌ | ✅ | ✅ |
 | macOS native | ✅ | ✅ | ❌ | ✅ |
