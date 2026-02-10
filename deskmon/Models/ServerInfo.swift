@@ -5,6 +5,12 @@ struct NetworkSample: Sendable {
     let upload: Double
 }
 
+enum ConnectionPhase: Sendable {
+    case connecting   // No data yet
+    case syncing      // Got snapshot, establishing live stream
+    case live         // SSE delivering events (or timed into live)
+}
+
 @MainActor
 @Observable
 final class ServerInfo: Identifiable {
@@ -19,6 +25,8 @@ final class ServerInfo: Identifiable {
     var processes: [ProcessInfo] = []
     var services: [ServiceInfo] = []
     var networkHistory: [NetworkSample] = []
+    var connectionPhase: ConnectionPhase = .connecting
+    var hasConnectedOnce = false
 
     static let maxNetworkSamples = 60
 

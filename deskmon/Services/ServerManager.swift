@@ -56,6 +56,13 @@ final class ServerManager {
             var backoff: UInt64 = 2
 
             while !Task.isCancelled {
+                // Reset phase for first-time connections
+                if !server.hasConnectedOnce {
+                    withAnimation { server.connectionPhase = .connecting }
+                }
+
+                var goLiveTimer: Task<Void, Never>?
+
                 // Step 1: Fetch full snapshot to fill UI immediately
                 do {
                     let response = try await client.fetchStats(
@@ -75,6 +82,18 @@ final class ServerManager {
                     try? await Task.sleep(for: .seconds(backoff))
                     backoff = min(backoff * 2, 30)
                     continue
+                }
+
+                // Start go-live countdown for first connection
+                if !server.hasConnectedOnce && server.connectionPhase == .syncing {
+                    goLiveTimer = Task {
+                        try? await Task.sleep(for: .seconds(3))
+                        guard !Task.isCancelled else { return }
+                        withAnimation(.smooth(duration: 0.5)) {
+                            server.connectionPhase = .live
+                            server.hasConnectedOnce = true
+                        }
+                    }
                 }
 
                 // Step 2: Open SSE stream with periodic fallback refresh
@@ -134,6 +153,7 @@ final class ServerManager {
                 }
 
                 pollTask.cancel()
+                goLiveTimer?.cancel()
 
                 guard !Task.isCancelled else { break }
 
@@ -163,6 +183,16 @@ final class ServerManager {
             server.appendNetworkSample(response.system.network)
             server.status = Self.deriveStatus(from: response.system)
         }
+
+        // Phase transition after snapshot
+        if !server.hasConnectedOnce && server.connectionPhase == .connecting {
+            withAnimation(.smooth(duration: 0.3)) {
+                server.connectionPhase = .syncing
+            }
+        } else if server.hasConnectedOnce && server.connectionPhase != .live {
+            server.connectionPhase = .live
+        }
+
         if server.id == selectedServerID {
             isConnected = true
         }

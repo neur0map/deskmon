@@ -96,8 +96,7 @@ struct DashboardView: View {
             }
 
             if let server = serverManager.selectedServer {
-                // Tab picker — only show once connected
-                if server.stats != nil {
+                if server.connectionPhase == .live {
                     Picker("", selection: $activeTab) {
                         ForEach(DashboardTab.allCases, id: \.self) { tab in
                             Text(tab.rawValue).tag(tab)
@@ -108,53 +107,64 @@ struct DashboardView: View {
                     .padding(.horizontal, 12)
                     .padding(.top, 6)
                     .padding(.bottom, 2)
-                }
 
-                switch activeTab {
-                case .overview:
-                    ScrollView {
-                        VStack(spacing: 10) {
-                            ServerHeaderView(server: server)
+                    switch activeTab {
+                    case .overview:
+                        ScrollView {
+                            VStack(spacing: 10) {
+                                ServerHeaderView(server: server)
 
-                            if let stats = server.stats {
-                                SystemStatsView(stats: stats)
-                                NetworkStatsView(network: stats.network, history: server.networkHistory)
-                            }
-
-                            if !server.containers.isEmpty {
-                                ContainerListView(containers: server.containers) { container in
-                                    withAnimation(.smooth(duration: 0.3)) {
-                                        selectedProcess = nil
-                                        selectedContainer = container
-                                    }
+                                if let stats = server.stats {
+                                    SystemStatsView(stats: stats)
+                                    NetworkStatsView(network: stats.network, history: server.networkHistory)
                                 }
-                            }
 
-                            if !server.processes.isEmpty {
-                                ProcessListView(
-                                    processes: server.processes,
-                                    onSelect: { process in
+                                if !server.containers.isEmpty {
+                                    ContainerListView(containers: server.containers) { container in
                                         withAnimation(.smooth(duration: 0.3)) {
-                                            selectedContainer = nil
-                                            selectedProcess = process
+                                            selectedProcess = nil
+                                            selectedContainer = container
                                         }
                                     }
-                                )
-                            }
-                        }
-                        .padding(12)
-                    }
-                    .animation(.smooth, value: serverManager.selectedServerID)
+                                }
 
-                case .services:
-                    ScrollView {
-                        ServicesGridView(services: server.services) { service in
-                            withAnimation(.smooth(duration: 0.3)) {
-                                selectedService = service
+                                if !server.processes.isEmpty {
+                                    ProcessListView(
+                                        processes: server.processes,
+                                        onSelect: { process in
+                                            withAnimation(.smooth(duration: 0.3)) {
+                                                selectedContainer = nil
+                                                selectedProcess = process
+                                            }
+                                        }
+                                    )
+                                }
                             }
+                            .padding(12)
                         }
-                        .padding(12)
+                        .animation(.smooth, value: serverManager.selectedServerID)
+
+                    case .services:
+                        ScrollView {
+                            ServicesGridView(services: server.services) { service in
+                                withAnimation(.smooth(duration: 0.3)) {
+                                    selectedService = service
+                                }
+                            }
+                            .padding(12)
+                        }
                     }
+                } else if server.connectionPhase == .syncing {
+                    GoingLiveView()
+                } else {
+                    Spacer()
+                    ProgressView()
+                        .scaleEffect(1.2)
+                    Text("Connecting...")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                        .padding(.top, 8)
+                    Spacer()
                 }
 
                 FooterView(

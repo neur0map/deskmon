@@ -79,8 +79,8 @@ struct MainDashboardView: View {
             // Detail — OLED black with inner rounded border
             VStack(spacing: 0) {
                 if let server = serverManager.selectedServer {
-                    // Tab picker — only show once connected
-                    if server.stats != nil {
+                    // Tab picker — only show once live
+                    if server.connectionPhase == .live {
                         HStack {
                             Picker("", selection: $activeTab) {
                                 ForEach(DashboardTab.allCases, id: \.self) { tab in
@@ -248,7 +248,7 @@ struct MainDashboardView: View {
 
     @ViewBuilder
     private func detailContent(server: ServerInfo) -> some View {
-        if let stats = server.stats {
+        if server.connectionPhase == .live, let stats = server.stats {
             ScrollView {
                 VStack(spacing: 16) {
                     statusBar(server: server, stats: stats)
@@ -321,8 +321,16 @@ struct MainDashboardView: View {
                 }
                 .padding(20)
             }
+        } else if server.connectionPhase == .syncing {
+            GoingLiveView()
         } else {
-            ProgressView("Connecting...")
+            VStack(spacing: 12) {
+                ProgressView()
+                    .scaleEffect(1.2)
+                Text("Connecting...")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+            }
         }
     }
 
