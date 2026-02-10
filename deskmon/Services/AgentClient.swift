@@ -89,7 +89,7 @@ final class AgentClient: Sendable {
         }
 
         var request = URLRequest(url: url)
-        request.timeoutInterval = 30 // Docker stats collection on the agent can take 10-15s
+        request.timeoutInterval = 8
         if !trimmedToken.isEmpty {
             request.setValue("Bearer \(trimmedToken)", forHTTPHeaderField: "Authorization")
         }
