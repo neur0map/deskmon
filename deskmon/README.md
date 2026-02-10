@@ -181,6 +181,13 @@ Deskmon uses a simple client-agent architecture. There is no intermediate backen
 4. App renders the JSON response in SwiftUI
 5. Optional: Auth token header for security
 
+<!-- TODO: Hybrid approach — add a WebSocket endpoint (/ws) alongside HTTP polling for:
+     - Real-time container log streaming (without polling)
+     - Container actions (start/stop/restart) with immediate feedback
+     - Push-based alerts (threshold exceeded, container crashed)
+     Stats polling continues independently so the app degrades gracefully
+     if the WebSocket connection drops. -->
+
 ### Agent Endpoints
 
 See [`docs/agent-api-contract.md`](docs/agent-api-contract.md) for the full API contract.
