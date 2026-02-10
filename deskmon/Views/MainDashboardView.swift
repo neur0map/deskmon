@@ -182,9 +182,10 @@ struct MainDashboardView: View {
     }
 
     private var liveSelectedProcess: ProcessInfo? {
-        guard let pid = selectedProcess?.pid,
+        guard let selected = selectedProcess,
               let server = serverManager.selectedServer else { return nil }
-        return server.processes.first { $0.pid == pid }
+        // Return live data if still in top list, otherwise keep the stored snapshot
+        return server.processes.first { $0.pid == selected.pid } ?? selected
     }
 
     private func detailSidebar<Content: View>(title: String, onClose: @escaping () -> Void, @ViewBuilder content: () -> Content) -> some View {

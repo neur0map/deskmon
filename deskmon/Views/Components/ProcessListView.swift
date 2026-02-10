@@ -8,7 +8,12 @@ struct ProcessListView: View {
     @State private var hoveredPID: Int32?
 
     private var sortedProcesses: [ProcessInfo] {
-        processes.sorted { $0.cpuPercent > $1.cpuPercent }
+        processes.sorted {
+            if abs($0.cpuPercent - $1.cpuPercent) < 0.05 {
+                return $0.pid < $1.pid
+            }
+            return $0.cpuPercent > $1.cpuPercent
+        }
     }
 
     var body: some View {

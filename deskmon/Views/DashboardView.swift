@@ -467,9 +467,9 @@ struct DashboardView: View {
     }
 
     private var liveSelectedProcess: ProcessInfo? {
-        guard let pid = selectedProcess?.pid,
+        guard let selected = selectedProcess,
               let server = serverManager.selectedServer else { return nil }
-        return server.processes.first { $0.pid == pid }
+        return server.processes.first { $0.pid == selected.pid } ?? selected
     }
 
     private func processDetailPanel(process: ProcessInfo) -> some View {
