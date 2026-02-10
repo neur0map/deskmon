@@ -25,19 +25,25 @@ final class ServerInfo: Identifiable {
     var processes: [ProcessInfo] = []
     var services: [ServiceInfo] = []
     var networkHistory: [NetworkSample] = []
+    /// Snapshot the sparkline actually reads — updated every `networkBatchSize` samples.
+    var displayNetworkHistory: [NetworkSample] = []
     var connectionPhase: ConnectionPhase = .connecting
     var hasConnectedOnce = false
 
-    /// Incremented each time a network sample is appended; drives sparkline scroll animation.
-    var networkSampleID: UInt64 = 0
+    /// Incremented every batch; drives the sparkline scroll animation.
+    var networkBatchID: UInt64 = 0
 
     /// Timestamp of the last services SSE event; drives the refresh countdown.
     var lastServicesUpdate: Date?
 
-    /// Buffer holds 1 extra sample so the sparkline can animate the scroll.
-    static let maxNetworkSamples = 61
+    /// Raw buffer holds visible + one batch of headroom for the scroll animation.
+    static let maxNetworkSamples = 65
     /// How many samples are visible in the graph at once.
     static let visibleNetworkSamples = 60
+    /// How many 1-second ticks to collect before flushing to the display buffer.
+    static let networkBatchSize = 5
+
+    private var samplesSinceBatch: Int = 0
 
     init(id: UUID = UUID(), name: String, host: String, port: Int = 7654, token: String = "") {
         self.id = id
@@ -53,6 +59,13 @@ final class ServerInfo: Identifiable {
         if networkHistory.count > Self.maxNetworkSamples {
             networkHistory.removeFirst(networkHistory.count - Self.maxNetworkSamples)
         }
-        networkSampleID &+= 1
+
+        samplesSinceBatch += 1
+
+        if samplesSinceBatch >= Self.networkBatchSize {
+            samplesSinceBatch = 0
+            displayNetworkHistory = networkHistory
+            networkBatchID &+= 1
+        }
     }
 }

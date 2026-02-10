@@ -3,7 +3,7 @@ import SwiftUI
 struct NetworkStatsView: View {
     let network: NetworkStats
     let history: [NetworkSample]
-    let sampleID: UInt64
+    let batchID: UInt64
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -40,7 +40,7 @@ struct NetworkStatsView: View {
             }
 
             // Sparkline graph
-            NetworkSparkline(history: history, sampleID: sampleID)
+            NetworkSparkline(history: history, batchID: batchID)
                 .frame(height: 48)
         }
         .padding(10)
@@ -52,11 +52,13 @@ struct NetworkStatsView: View {
 
 private struct NetworkSparkline: View {
     let history: [NetworkSample]
-    let sampleID: UInt64
+    let batchID: UInt64
 
-    /// Animated 1→0 progress that drives the horizontal slide.
-    /// At 1 the graph is shifted right by one step (pre-scroll position);
-    /// at 0 it shows the final position with the new point visible.
+    private static let batchSize = CGFloat(ServerInfo.networkBatchSize)
+
+    /// Animated batchSize→0 progress that drives the horizontal slide.
+    /// At batchSize the graph is shifted right by N steps (pre-scroll);
+    /// at 0 it shows the final position with the new batch visible.
     @State private var scrollPhase: CGFloat = 0
 
     var body: some View {
@@ -81,9 +83,9 @@ private struct NetworkSparkline: View {
                 let peak = max(dlSmoothed.max() ?? 0, ulSmoothed.max() ?? 0)
                 let ceiling = peak > 0 ? peak * 1.15 : 1
 
-                // Position each sample at index * stepX.
-                // scrollPhase shifts everything right so the incoming point
-                // slides in from the right edge.
+                // scrollPhase shifts the entire graph right by N steps.
+                // At batchSize the new batch is hidden off-screen right;
+                // as it animates to 0 the graph slides left, revealing them.
                 let baseOffset = CGFloat(visible - samples.count) * stepX
                 let xShift = scrollPhase * stepX
                 let offsetX = baseOffset + xShift
@@ -123,11 +125,12 @@ private struct NetworkSparkline: View {
         }
         .clipShape(.rect(cornerRadius: 6))
         .background(Color.white.opacity(0.03), in: .rect(cornerRadius: 6))
-        .onChange(of: sampleID) {
-            // Jump to "pre-scroll" position, then animate the slide.
-            scrollPhase = 1.0
-            withAnimation(.linear(duration: 0.9)) {
-                scrollPhase = 0.0
+        .onChange(of: batchID) {
+            // Jump to pre-scroll position (shifted right by batchSize steps),
+            // then smoothly slide left over ~5 seconds.
+            scrollPhase = Self.batchSize
+            withAnimation(.linear(duration: 4.8)) {
+                scrollPhase = 0
             }
         }
     }
