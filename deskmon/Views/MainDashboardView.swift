@@ -6,6 +6,8 @@ struct MainDashboardView: View {
     @State private var showingSettings = false
     @State private var editingServer: ServerInfo?
     @State private var selectedContainer: DockerContainer?
+    @State private var isRestartingAgent = false
+    @State private var restartFeedback: String?
 
     var body: some View {
         @Bindable var manager = serverManager
@@ -249,6 +251,10 @@ struct MainDashboardView: View {
                             }
                         )
                     }
+
+                    if !server.processes.isEmpty {
+                        ProcessListView(processes: server.processes)
+                    }
                 }
                 .padding(20)
             }
@@ -353,16 +359,37 @@ struct MainDashboardView: View {
                 .font(.callout)
 
                 HStack(spacing: 8) {
-                    // TODO: Send POST /restart to the agent when real networking is wired up
                     Button {
-                        serverManager.stopPolling()
-                        serverManager.startPolling()
+                        isRestartingAgent = true
+                        restartFeedback = nil
+                        Task {
+                            do {
+                                let msg = try await serverManager.restartAgent()
+                                restartFeedback = msg.capitalized
+                            } catch {
+                                restartFeedback = error.localizedDescription
+                            }
+                            isRestartingAgent = false
+                        }
                     } label: {
-                        Label("Restart Agent", systemImage: "arrow.clockwise")
-                            .font(.callout)
+                        HStack(spacing: 4) {
+                            if isRestartingAgent {
+                                ProgressView()
+                                    .controlSize(.small)
+                            }
+                            Label("Restart Agent", systemImage: "arrow.clockwise")
+                                .font(.callout)
+                        }
                     }
+                    .disabled(isRestartingAgent)
 
                     Spacer()
+
+                    if let restartFeedback {
+                        Text(restartFeedback)
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
                 }
             }
             .padding(.horizontal, 4)

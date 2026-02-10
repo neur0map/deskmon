@@ -3,18 +3,38 @@ import SwiftUI
 struct ContainerDetailView: View {
     let container: DockerContainer
 
+    @Environment(ServerManager.self) private var serverManager
+    @State private var actionInProgress: ContainerAction?
+    @State private var showStopConfirmation = false
+    @State private var showRestartConfirmation = false
+    @State private var actionError: String?
+
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 14) {
                 headerSection
+                actionsSection
                 if container.status == .running {
                     cpuSection
                     memorySection
+                    portMappingsSection
                     networkSection
                     diskIOSection
                 }
             }
             .padding(16)
+        }
+        .alert("Stop Container?", isPresented: $showStopConfirmation) {
+            Button("Cancel", role: .cancel) {}
+            Button("Stop", role: .destructive) { performAction(.stop) }
+        } message: {
+            Text("This will stop \(container.name).")
+        }
+        .alert("Restart Container?", isPresented: $showRestartConfirmation) {
+            Button("Cancel", role: .cancel) {}
+            Button("Restart", role: .destructive) { performAction(.restart) }
+        } message: {
+            Text("This will restart \(container.name).")
         }
     }
 
@@ -29,9 +49,23 @@ struct ContainerDetailView: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text(container.name)
                     .font(.headline)
-                Text(container.status.label)
-                    .font(.caption)
-                    .foregroundStyle(container.status.color)
+                HStack(spacing: 6) {
+                    Text(container.status.label)
+                        .font(.caption)
+                        .foregroundStyle(container.status.color)
+
+                    if container.healthStatus != .none {
+                        Label(container.healthStatus.label, systemImage: container.healthStatus.systemImage)
+                            .font(.caption2)
+                            .foregroundStyle(container.healthStatus.color)
+                    }
+
+                    if container.restartCount > 0 {
+                        Label("\(container.restartCount)", systemImage: "arrow.clockwise")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
+                }
             }
 
             Spacer()
@@ -44,6 +78,73 @@ struct ContainerDetailView: View {
         }
         .padding(12)
         .tintedCardStyle(cornerRadius: 10, tint: container.status.color)
+    }
+
+    // MARK: - Actions
+
+    private var actionsSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 8) {
+                if container.status == .stopped {
+                    actionButton("Start", systemImage: "play.fill", color: Theme.healthy, action: .start) {
+                        performAction(.start)
+                    }
+                }
+                if container.status == .running {
+                    actionButton("Stop", systemImage: "stop.fill", color: Theme.critical, action: .stop) {
+                        showStopConfirmation = true
+                    }
+                    actionButton("Restart", systemImage: "arrow.clockwise", color: Theme.warning, action: .restart) {
+                        showRestartConfirmation = true
+                    }
+                }
+            }
+
+            if let actionError {
+                Text(actionError)
+                    .font(.caption2)
+                    .foregroundStyle(Theme.critical)
+            }
+        }
+        .padding(12)
+        .tintedCardStyle(cornerRadius: 10, tint: Theme.accent)
+    }
+
+    private func actionButton(_ label: String, systemImage: String, color: Color, action: ContainerAction, onTap: @escaping () -> Void) -> some View {
+        Button(action: onTap) {
+            HStack(spacing: 4) {
+                if actionInProgress == action {
+                    ProgressView()
+                        .controlSize(.small)
+                } else {
+                    Image(systemName: systemImage)
+                }
+                Text(label)
+            }
+            .font(.caption.weight(.medium))
+            .foregroundStyle(color)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            .background(color.opacity(0.12), in: Capsule())
+        }
+        .buttonStyle(.plain)
+        .disabled(actionInProgress != nil)
+    }
+
+    private func performAction(_ action: ContainerAction) {
+        actionError = nil
+        actionInProgress = action
+        Task {
+            do {
+                _ = try await serverManager.performContainerAction(
+                    containerID: container.id,
+                    action: action
+                )
+            } catch {
+                actionError = error.localizedDescription
+            }
+            actionInProgress = nil
+        }
     }
 
     // MARK: - CPU
@@ -96,6 +197,37 @@ struct ContainerDetailView: View {
         }
         .padding(12)
         .cardStyle(cornerRadius: 10)
+    }
+
+    // MARK: - Port Mappings
+
+    @ViewBuilder
+    private var portMappingsSection: some View {
+        if !container.ports.isEmpty {
+            VStack(alignment: .leading, spacing: 8) {
+                Label("Ports", systemImage: "network.badge.shield.half.filled")
+                    .font(.caption.weight(.medium))
+                    .foregroundStyle(.secondary)
+
+                VStack(spacing: 4) {
+                    ForEach(container.ports) { port in
+                        HStack {
+                            Text("\(port.hostPort)")
+                                .font(.callout.monospacedDigit().weight(.medium))
+                            Image(systemName: "arrow.right")
+                                .font(.caption2)
+                                .foregroundStyle(.tertiary)
+                            Text("\(port.containerPort)/\(port.protocol)")
+                                .font(.callout.monospacedDigit())
+                                .foregroundStyle(.secondary)
+                            Spacer()
+                        }
+                    }
+                }
+            }
+            .padding(12)
+            .cardStyle(cornerRadius: 10)
+        }
     }
 
     // MARK: - Network
@@ -177,8 +309,4 @@ struct ContainerDetailView: View {
         .padding(12)
         .cardStyle(cornerRadius: 10)
     }
-
-    // TODO: Port mappings section — show host:container/protocol table
-    // TODO: Health check section — status badge + last check output
-    // TODO: Container actions bar — Start/Stop/Restart buttons (requires agent POST endpoints)
 }

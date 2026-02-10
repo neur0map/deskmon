@@ -1,6 +1,44 @@
 import Foundation
 import SwiftUI
 
+// MARK: - Port Mapping
+
+struct PortMapping: Codable, Identifiable, Sendable {
+    let hostPort: Int
+    let containerPort: Int
+    let `protocol`: String
+
+    var id: String { "\(hostPort)-\(containerPort)-\(`protocol`)" }
+}
+
+// MARK: - Health Check Status
+
+enum HealthCheckStatus: String, Codable, Sendable {
+    case healthy, unhealthy, starting, none
+
+    var label: String { rawValue.capitalized }
+
+    var color: Color {
+        switch self {
+        case .healthy: Theme.healthy
+        case .unhealthy: Theme.critical
+        case .starting: Theme.warning
+        case .none: .secondary
+        }
+    }
+
+    var systemImage: String {
+        switch self {
+        case .healthy: "heart.fill"
+        case .unhealthy: "heart.slash.fill"
+        case .starting: "heart.circle"
+        case .none: "heart"
+        }
+    }
+}
+
+// MARK: - Docker Container
+
 struct DockerContainer: Identifiable, Sendable {
     var id: String
     var name: String
@@ -15,11 +53,9 @@ struct DockerContainer: Identifiable, Sendable {
     var blockWriteBytes: Int64
     var pids: Int
     var startedAt: Date?
-
-    // TODO: ports — [PortMapping] for exposed port mappings (e.g. 8080:80/tcp)
-    // TODO: restartCount — number of times container has restarted
-    // TODO: healthStatus — healthy/unhealthy/starting/none (requires container healthcheck)
-    // TODO: healthLog — last health check output string
+    var ports: [PortMapping]
+    var restartCount: Int
+    var healthStatus: HealthCheckStatus
 
     var memoryPercent: Double {
         guard memoryLimitMB > 0 else { return 0 }
@@ -59,7 +95,7 @@ extension DockerContainer: Codable {
     private enum CodingKeys: String, CodingKey {
         case id, name, image, status, cpuPercent, memoryUsageMB, memoryLimitMB
         case networkRxBytes, networkTxBytes, blockReadBytes, blockWriteBytes
-        case pids, startedAt
+        case pids, startedAt, ports, restartCount, healthStatus
     }
 
     init(from decoder: Decoder) throws {
@@ -84,6 +120,11 @@ extension DockerContainer: Codable {
         } else {
             startedAt = nil
         }
+
+        // New fields — use defaults for backward compatibility
+        ports = (try? c.decode([PortMapping].self, forKey: .ports)) ?? []
+        restartCount = (try? c.decode(Int.self, forKey: .restartCount)) ?? 0
+        healthStatus = HealthCheckStatus(rawValue: (try? c.decode(String.self, forKey: .healthStatus)) ?? "none") ?? .none
     }
 
     func encode(to encoder: Encoder) throws {
@@ -105,5 +146,8 @@ extension DockerContainer: Codable {
         } else {
             try c.encodeNil(forKey: .startedAt)
         }
+        try c.encode(ports, forKey: .ports)
+        try c.encode(restartCount, forKey: .restartCount)
+        try c.encode(healthStatus.rawValue, forKey: .healthStatus)
     }
 }

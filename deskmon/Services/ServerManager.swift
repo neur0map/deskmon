@@ -147,6 +147,30 @@ final class ServerManager {
         selectedServerID = server.id
     }
 
+    // MARK: - Container Actions
+
+    func performContainerAction(containerID: String, action: ContainerAction) async throws -> String {
+        guard let server = selectedServer else { throw AgentError.invalidURL }
+        let result = try await client.performContainerAction(
+            host: server.host,
+            port: server.port,
+            token: server.token,
+            containerID: containerID,
+            action: action
+        )
+        await refreshData()
+        return result
+    }
+
+    func restartAgent() async throws -> String {
+        guard let server = selectedServer else { throw AgentError.invalidURL }
+        return try await client.restartAgent(
+            host: server.host,
+            port: server.port,
+            token: server.token
+        )
+    }
+
     // MARK: - Status Derivation
 
     private static func deriveStatus(from stats: ServerStats) -> ServerStatus {

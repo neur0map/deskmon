@@ -7,6 +7,9 @@ struct DashboardView: View {
     @State private var editingServer: ServerInfo?
     @State private var selectedContainer: DockerContainer?
 
+    @State private var isRestartingAgent = false
+    @State private var restartFeedback: String?
+
     // Inline edit form state
     @State private var editName = ""
     @State private var editHost = ""
@@ -224,20 +227,43 @@ struct DashboardView: View {
                         Divider().padding(.leading, 12)
 
                         Button {
-                            serverManager.stopPolling()
-                            serverManager.startPolling()
+                            isRestartingAgent = true
+                            restartFeedback = nil
+                            Task {
+                                do {
+                                    let msg = try await serverManager.restartAgent()
+                                    restartFeedback = msg.capitalized
+                                } catch {
+                                    restartFeedback = error.localizedDescription
+                                }
+                                isRestartingAgent = false
+                            }
                         } label: {
                             HStack {
-                                Text("Restart Polling")
+                                Text("Restart Agent")
                                 Spacer()
-                                Image(systemName: "arrow.clockwise")
-                                    .foregroundStyle(.secondary)
+                                if isRestartingAgent {
+                                    ProgressView()
+                                        .controlSize(.small)
+                                } else {
+                                    Image(systemName: "arrow.clockwise")
+                                        .foregroundStyle(.secondary)
+                                }
                             }
                             .font(.callout)
                             .padding(.horizontal, 12)
                             .padding(.vertical, 10)
                         }
                         .buttonStyle(.plain)
+                        .disabled(isRestartingAgent)
+
+                        if let restartFeedback {
+                            Text(restartFeedback)
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                                .padding(.horizontal, 12)
+                                .padding(.bottom, 4)
+                        }
                     }
                     .cardStyle(cornerRadius: 10)
 
