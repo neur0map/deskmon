@@ -98,17 +98,19 @@ struct DashboardView: View {
             }
 
             if let server = serverManager.selectedServer {
-                // Tab picker
-                Picker("", selection: $activeTab) {
-                    ForEach(DashboardTab.allCases, id: \.self) { tab in
-                        Text(tab.rawValue).tag(tab)
+                // Tab picker — only show once connected
+                if server.stats != nil {
+                    Picker("", selection: $activeTab) {
+                        ForEach(DashboardTab.allCases, id: \.self) { tab in
+                            Text(tab.rawValue).tag(tab)
+                        }
                     }
+                    .pickerStyle(.segmented)
+                    .labelsHidden()
+                    .padding(.horizontal, 12)
+                    .padding(.top, 6)
+                    .padding(.bottom, 2)
                 }
-                .pickerStyle(.segmented)
-                .labelsHidden()
-                .padding(.horizontal, 12)
-                .padding(.top, 6)
-                .padding(.bottom, 2)
 
                 switch activeTab {
                 case .overview:

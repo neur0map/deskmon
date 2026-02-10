@@ -81,21 +81,23 @@ struct MainDashboardView: View {
             // Detail — OLED black with inner rounded border
             VStack(spacing: 0) {
                 if let server = serverManager.selectedServer {
-                    // Tab picker
-                    HStack {
-                        Picker("", selection: $activeTab) {
-                            ForEach(DashboardTab.allCases, id: \.self) { tab in
-                                Text(tab.rawValue).tag(tab)
+                    // Tab picker — only show once connected
+                    if server.stats != nil {
+                        HStack {
+                            Picker("", selection: $activeTab) {
+                                ForEach(DashboardTab.allCases, id: \.self) { tab in
+                                    Text(tab.rawValue).tag(tab)
+                                }
                             }
-                        }
-                        .pickerStyle(.segmented)
-                        .frame(width: 200)
+                            .pickerStyle(.segmented)
+                            .frame(width: 200)
 
-                        Spacer()
+                            Spacer()
+                        }
+                        .padding(.horizontal, 20)
+                        .padding(.top, 14)
+                        .padding(.bottom, 4)
                     }
-                    .padding(.horizontal, 20)
-                    .padding(.top, 14)
-                    .padding(.bottom, 4)
 
                     // Tab content
                     switch activeTab {

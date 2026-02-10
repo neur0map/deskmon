@@ -15,14 +15,19 @@ struct PiHoleDashboardView: View {
     private var uniqueDomains: Int64 { service.stats["uniqueDomains"]?.intValue ?? 0 }
     private var piStatus: String { service.stats["status"]?.stringValue ?? service.status }
     private var version: String { service.stats["version"]?.stringValue ?? "" }
+    private var authRequired: Bool { service.stats["authRequired"]?.boolValue == true }
 
     var body: some View {
         ScrollView {
             VStack(spacing: 16) {
                 headerCard
-                statsGrid
-                breakdownCard
-                infoCard
+                if authRequired {
+                    authRequiredCard
+                } else {
+                    statsGrid
+                    breakdownCard
+                    infoCard
+                }
             }
             .padding(20)
         }
@@ -59,6 +64,27 @@ struct PiHoleDashboardView: View {
         }
         .padding(14)
         .tintedCardStyle(cornerRadius: 12, tint: accent)
+    }
+
+    // MARK: - Auth Required
+
+    private var authRequiredCard: some View {
+        VStack(spacing: 12) {
+            Image(systemName: "lock.shield")
+                .font(.largeTitle)
+                .foregroundStyle(accent.opacity(0.6))
+
+            Text("Authentication Required")
+                .font(.headline)
+
+            Text("Pi-hole v6 requires a password to access detailed stats. API key support is coming soon.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(24)
+        .cardStyle(cornerRadius: 12)
     }
 
     // MARK: - Stats Grid

@@ -79,4 +79,9 @@ enum AnyCodableValue: Codable, Sendable {
         default: return nil
         }
     }
+
+    var boolValue: Bool? {
+        if case .bool(let v) = self { return v }
+        return nil
+    }
 }
