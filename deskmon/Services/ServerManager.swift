@@ -1,4 +1,5 @@
 import Foundation
+import os
 import SwiftUI
 
 @MainActor
@@ -8,6 +9,7 @@ final class ServerManager {
     var selectedServerID: UUID?
     var isConnected = false
 
+    private static let log = Logger(subsystem: "prowlsh.deskmon", category: "ServerManager")
     private let client = AgentClient.shared
     private var streamTasks: [UUID: Task<Void, Never>] = [:]
 
@@ -61,11 +63,13 @@ final class ServerManager {
                     )
                     applyFullSnapshot(server: server, response: response)
                 } catch let error as AgentError where error == .unauthorized {
+                    Self.log.error("Fetch unauthorized for \(server.name)")
                     withAnimation { server.status = .unauthorized }
                     try? await Task.sleep(for: .seconds(backoff))
                     backoff = min(backoff * 2, 30)
                     continue
                 } catch {
+                    Self.log.error("Fetch failed for \(server.name): \(error.localizedDescription)")
                     withAnimation { server.status = .offline }
                     try? await Task.sleep(for: .seconds(backoff))
                     backoff = min(backoff * 2, 30)
@@ -110,7 +114,7 @@ final class ServerManager {
                         }
                     }
                 } catch {
-                    // Stream ended or errored — will reconnect
+                    Self.log.error("SSE stream error for \(server.name): \(error.localizedDescription)")
                 }
 
                 guard !Task.isCancelled else { break }

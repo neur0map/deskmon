@@ -311,8 +311,9 @@ final class AgentClient: Sendable {
                 if !trimmedToken.isEmpty {
                     request.setValue("Bearer \(trimmedToken)", forHTTPHeaderField: "Authorization")
                 }
-                // No timeout — SSE is a long-lived connection
-                request.timeoutInterval = 0
+                // Long timeout for SSE — the stream stays open indefinitely.
+                // The server sends events every 1-10s, so the idle timer resets frequently.
+                request.timeoutInterval = 86400 // 24 hours
 
                 Self.log.info("SSE connecting to \(url.absoluteString)")
 
