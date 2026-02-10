@@ -5,6 +5,8 @@ struct ContainerTableView: View {
     var selectedID: String? = nil
     var onSelect: ((DockerContainer) -> Void)? = nil
 
+    @State private var hoveredID: String?
+
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             SectionHeaderView(title: "Containers", count: containers.count)
@@ -22,6 +24,8 @@ struct ContainerTableView: View {
                         .frame(width: 80, alignment: .trailing)
                     Text("Status")
                         .frame(width: 70, alignment: .trailing)
+                    Text("")
+                        .frame(width: 14)
                 }
                 .font(.caption2.weight(.medium))
                 .foregroundStyle(.tertiary)
@@ -30,6 +34,7 @@ struct ContainerTableView: View {
 
                 ForEach(containers) { container in
                     let isSelected = container.id == selectedID
+                    let isHovered = hoveredID == container.id
                     GridRow {
                         Circle()
                             .fill(container.status.color)
@@ -67,10 +72,19 @@ struct ContainerTableView: View {
                             .font(.caption)
                             .foregroundStyle(container.status.color)
                             .frame(width: 70, alignment: .trailing)
+
+                        Image(systemName: "chevron.right")
+                            .font(.caption2)
+                            .foregroundStyle(isHovered || isSelected ? .secondary : .quaternary)
+                            .frame(width: 14)
                     }
                     .padding(.vertical, 6)
                     .padding(.horizontal, 8)
-                    .background(isSelected ? Theme.accent.opacity(0.1) : .clear, in: .rect(cornerRadius: 8))
+                    .background(
+                        isSelected ? Theme.accent.opacity(0.1) :
+                        (isHovered ? Color.white.opacity(0.04) : .clear),
+                        in: .rect(cornerRadius: 8)
+                    )
                     .overlay(
                         RoundedRectangle(cornerRadius: 8)
                             .strokeBorder(isSelected ? Theme.accent.opacity(0.25) : Theme.cardBorder, lineWidth: 1)
@@ -79,6 +93,9 @@ struct ContainerTableView: View {
                     .contentShape(.rect)
                     .onTapGesture {
                         onSelect?(container)
+                    }
+                    .onHover { isHovering in
+                        hoveredID = isHovering ? container.id : nil
                     }
                 }
             }

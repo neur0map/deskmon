@@ -6,6 +6,8 @@ struct ProcessInfo: Codable, Identifiable, Sendable {
     var cpuPercent: Double
     var memoryMB: Double
     var memoryPercent: Double
+    var command: String?
+    var user: String?
 
     var id: Int32 { pid }
 }

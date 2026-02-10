@@ -6,6 +6,7 @@ struct MainDashboardView: View {
     @State private var showingSettings = false
     @State private var editingServer: ServerInfo?
     @State private var selectedContainer: DockerContainer?
+    @State private var selectedProcess: ProcessInfo?
     @State private var isRestartingAgent = false
     @State private var restartFeedback: String?
 
@@ -38,6 +39,7 @@ struct MainDashboardView: View {
                                     withAnimation(.smooth(duration: 0.25)) {
                                         manager.selectedServerID = server.id
                                         selectedContainer = nil
+                                        selectedProcess = nil
                                     }
                                 }
                         }
@@ -92,37 +94,19 @@ struct MainDashboardView: View {
             .innerPanel()
             .padding(6)
 
-            // Container Detail Panel
+            // Right Detail Panel (Container or Process)
             if let container = liveSelectedContainer {
-                VStack(spacing: 0) {
-                    HStack {
-                        Text("Container")
-                            .font(.subheadline.weight(.medium))
-                            .foregroundStyle(.secondary)
-                        Spacer()
-                        Button {
-                            withAnimation(.smooth(duration: 0.25)) {
-                                selectedContainer = nil
-                            }
-                        } label: {
-                            Image(systemName: "xmark.circle.fill")
-                                .font(.body)
-                                .foregroundStyle(.secondary)
-                                .contentShape(.rect)
-                                .frame(width: 28, height: 28)
-                        }
-                        .buttonStyle(.plain)
-                    }
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 10)
-
-                    Divider().overlay(Theme.cardBorder)
-
+                detailSidebar(title: "Container") {
+                    withAnimation(.smooth(duration: 0.25)) { selectedContainer = nil }
+                } content: {
                     ContainerDetailView(container: container)
                 }
-                .frame(width: 240)
-                .background(Color.white.opacity(0.04))
-                .transition(.move(edge: .trailing).combined(with: .opacity))
+            } else if let process = liveSelectedProcess {
+                detailSidebar(title: "Process") {
+                    withAnimation(.smooth(duration: 0.25)) { selectedProcess = nil }
+                } content: {
+                    ProcessDetailView(process: process)
+                }
             }
         }
         .background(Theme.background)
@@ -197,6 +181,40 @@ struct MainDashboardView: View {
         return server.containers.first { $0.id == id }
     }
 
+    private var liveSelectedProcess: ProcessInfo? {
+        guard let pid = selectedProcess?.pid,
+              let server = serverManager.selectedServer else { return nil }
+        return server.processes.first { $0.pid == pid }
+    }
+
+    private func detailSidebar<Content: View>(title: String, onClose: @escaping () -> Void, @ViewBuilder content: () -> Content) -> some View {
+        VStack(spacing: 0) {
+            HStack {
+                Text(title)
+                    .font(.subheadline.weight(.medium))
+                    .foregroundStyle(.secondary)
+                Spacer()
+                Button(action: onClose) {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.body)
+                        .foregroundStyle(.secondary)
+                        .contentShape(.rect)
+                        .frame(width: 28, height: 28)
+                }
+                .buttonStyle(.plain)
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 10)
+
+            Divider().overlay(Theme.cardBorder)
+
+            content()
+        }
+        .frame(width: 240)
+        .background(Color.white.opacity(0.04))
+        .transition(.move(edge: .trailing).combined(with: .opacity))
+    }
+
     @ViewBuilder
     private func detailContent(server: ServerInfo) -> some View {
         if let stats = server.stats {
@@ -242,6 +260,7 @@ struct MainDashboardView: View {
                             selectedID: selectedContainer?.id,
                             onSelect: { container in
                                 withAnimation(.smooth(duration: 0.25)) {
+                                    selectedProcess = nil
                                     if selectedContainer?.id == container.id {
                                         selectedContainer = nil
                                     } else {
@@ -253,11 +272,20 @@ struct MainDashboardView: View {
                     }
 
                     if !server.processes.isEmpty {
-                        ProcessListView(processes: server.processes) { process in
-                            Task {
-                                _ = try? await serverManager.killProcess(pid: process.pid)
+                        ProcessListView(
+                            processes: server.processes,
+                            selectedPID: selectedProcess?.pid,
+                            onSelect: { process in
+                                withAnimation(.smooth(duration: 0.25)) {
+                                    selectedContainer = nil
+                                    if selectedProcess?.pid == process.pid {
+                                        selectedProcess = nil
+                                    } else {
+                                        selectedProcess = process
+                                    }
+                                }
                             }
-                        }
+                        )
                     }
                 }
                 .padding(20)

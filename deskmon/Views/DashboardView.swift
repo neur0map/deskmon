@@ -6,6 +6,7 @@ struct DashboardView: View {
     @State private var showingSettings = false
     @State private var editingServer: ServerInfo?
     @State private var selectedContainer: DockerContainer?
+    @State private var selectedProcess: ProcessInfo?
 
     @State private var isRestartingAgent = false
     @State private var restartFeedback: String?
@@ -24,6 +25,12 @@ struct DashboardView: View {
         VStack(spacing: 0) {
             if let container = liveSelectedContainer {
                 containerDetailPanel(container: container)
+                    .transition(.asymmetric(
+                        insertion: .move(edge: .trailing),
+                        removal: .move(edge: .trailing)
+                    ))
+            } else if let process = liveSelectedProcess {
+                processDetailPanel(process: process)
                     .transition(.asymmetric(
                         insertion: .move(edge: .trailing),
                         removal: .move(edge: .trailing)
@@ -89,17 +96,22 @@ struct DashboardView: View {
                         if !server.containers.isEmpty {
                             ContainerListView(containers: server.containers) { container in
                                 withAnimation(.smooth(duration: 0.3)) {
+                                    selectedProcess = nil
                                     selectedContainer = container
                                 }
                             }
                         }
 
                         if !server.processes.isEmpty {
-                            ProcessListView(processes: server.processes) { process in
-                                Task {
-                                    _ = try? await serverManager.killProcess(pid: process.pid)
+                            ProcessListView(
+                                processes: server.processes,
+                                onSelect: { process in
+                                    withAnimation(.smooth(duration: 0.3)) {
+                                        selectedContainer = nil
+                                        selectedProcess = process
+                                    }
                                 }
-                            }
+                            )
                         }
                     }
                     .padding(12)
@@ -452,6 +464,47 @@ struct DashboardView: View {
         guard let id = selectedContainer?.id,
               let server = serverManager.selectedServer else { return nil }
         return server.containers.first { $0.id == id }
+    }
+
+    private var liveSelectedProcess: ProcessInfo? {
+        guard let pid = selectedProcess?.pid,
+              let server = serverManager.selectedServer else { return nil }
+        return server.processes.first { $0.pid == pid }
+    }
+
+    private func processDetailPanel(process: ProcessInfo) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack {
+                Button {
+                    withAnimation(.smooth(duration: 0.3)) {
+                        selectedProcess = nil
+                    }
+                } label: {
+                    HStack(spacing: 4) {
+                        Image(systemName: "chevron.left")
+                        Text("Back")
+                    }
+                }
+                .buttonStyle(.plain)
+
+                Spacer()
+
+                Text(process.name)
+                    .font(.headline)
+
+                Spacer()
+
+                HStack(spacing: 4) {
+                    Image(systemName: "chevron.left")
+                    Text("Back")
+                }
+                .hidden()
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 12)
+
+            ProcessDetailView(process: process)
+        }
     }
 
     private func containerDetailPanel(container: DockerContainer) -> some View {

@@ -158,6 +158,8 @@ final class ServerManager {
             containerID: containerID,
             action: action
         )
+        // Give Docker time to settle after the action before refreshing stats
+        try? await Task.sleep(for: .seconds(1.5))
         await refreshData()
         return result
     }

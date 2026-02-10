@@ -2,10 +2,10 @@ import SwiftUI
 
 struct ProcessListView: View {
     let processes: [ProcessInfo]
-    var onKill: ((ProcessInfo) -> Void)?
+    var selectedPID: Int32? = nil
+    var onSelect: ((ProcessInfo) -> Void)?
 
-    @State private var killingPID: Int32?
-    @State private var confirmKill: ProcessInfo?
+    @State private var hoveredPID: Int32?
 
     private var sortedProcesses: [ProcessInfo] {
         processes.sorted { $0.cpuPercent > $1.cpuPercent }
@@ -24,8 +24,8 @@ struct ProcessListView: View {
                     .frame(width: 48, alignment: .trailing)
                 Text("MEM")
                     .frame(width: 56, alignment: .trailing)
-                if onKill != nil {
-                    Spacer().frame(width: 28)
+                if onSelect != nil {
+                    Spacer().frame(width: 20)
                 }
             }
             .font(.caption2)
@@ -34,7 +34,26 @@ struct ProcessListView: View {
 
             VStack(spacing: 0) {
                 ForEach(Array(sortedProcesses.enumerated()), id: \.element.pid) { index, process in
+                    let isSelected = selectedPID == process.pid
+                    let isHovered = hoveredPID == process.pid
+
                     processRow(process, rank: index + 1)
+                        .background(
+                            isSelected ? Theme.accent.opacity(0.1) :
+                            (isHovered ? Color.white.opacity(0.04) : .clear),
+                            in: .rect(cornerRadius: 6)
+                        )
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 6)
+                                .strokeBorder(isSelected ? Theme.accent.opacity(0.25) : .clear, lineWidth: 1)
+                        )
+                        .contentShape(.rect)
+                        .onTapGesture {
+                            onSelect?(process)
+                        }
+                        .onHover { isHovering in
+                            hoveredPID = isHovering ? process.pid : nil
+                        }
 
                     if index < sortedProcesses.count - 1 {
                         Divider()
@@ -46,25 +65,6 @@ struct ProcessListView: View {
         }
         .padding(10)
         .cardStyle()
-        .alert(
-            "Kill Process",
-            isPresented: Binding(
-                get: { confirmKill != nil },
-                set: { if !$0 { confirmKill = nil } }
-            )
-        ) {
-            Button("Cancel", role: .cancel) { confirmKill = nil }
-            Button("Kill", role: .destructive) {
-                if let process = confirmKill {
-                    onKill?(process)
-                }
-                confirmKill = nil
-            }
-        } message: {
-            if let process = confirmKill {
-                Text("Send SIGTERM to \"\(process.name)\" (PID \(process.pid))?")
-            }
-        }
     }
 
     private func processRow(_ process: ProcessInfo, rank: Int) -> some View {
@@ -92,23 +92,11 @@ struct ProcessListView: View {
                 .frame(width: 56, alignment: .trailing)
                 .contentTransition(.numericText())
 
-            if onKill != nil {
-                if killingPID == process.pid {
-                    ProgressView()
-                        .controlSize(.mini)
-                        .frame(width: 20, height: 20)
-                } else {
-                    Button {
-                        confirmKill = process
-                    } label: {
-                        Image(systemName: "xmark.circle")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                            .frame(width: 20, height: 20)
-                            .contentShape(.rect)
-                    }
-                    .buttonStyle(.plain)
-                }
+            if onSelect != nil {
+                Image(systemName: "chevron.right")
+                    .font(.caption2)
+                    .foregroundStyle(hoveredPID == process.pid ? .secondary : .quaternary)
+                    .frame(width: 12)
             }
         }
         .padding(.horizontal, 8)
