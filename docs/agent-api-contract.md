@@ -22,6 +22,7 @@ What the macOS app expects from `deskmon-agent`. This is the source of truth for
 | `POST` | `/containers/{id}/stop` | Yes | Stop a Docker container |
 | `POST` | `/containers/{id}/restart` | Yes | Restart a Docker container |
 | `POST` | `/processes/{pid}/kill` | Yes | Kill a process by PID |
+| `POST` | `/services/{pluginId}/configure` | Yes | Set service credentials (e.g. Pi-hole password) |
 | `POST` | `/agent/restart` | Yes | Restart the agent |
 | `POST` | `/agent/stop` | Yes | Stop the agent |
 | `GET` | `/agent/status` | Yes | Agent version and status |
@@ -238,6 +239,30 @@ Server-Sent Events endpoint for live stats. The app opens a persistent connectio
 
 The app connects via: fetch once (`GET /stats`), then open stream (`GET /stats/stream`).
 Auto-reconnects with exponential backoff (2s → 4s → 8s → max 30s).
+
+---
+
+## POST /services/{pluginId}/configure
+
+Configure credentials for a detected service (e.g. Pi-hole v6 password).
+
+**Request** `POST /services/pihole/configure`
+
+```json
+{
+  "password": "your-pihole-password"
+}
+```
+
+**Response** `200 OK`
+
+```json
+{
+  "message": "configured"
+}
+```
+
+The macOS app sends this when the user enters a Pi-hole password in the service dashboard. The agent stores the password in config, authenticates with Pi-hole v6 via `POST /api/auth`, and caches the session. Full Pi-hole stats will appear on the next SSE services event (~10s).
 
 ---
 

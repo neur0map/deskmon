@@ -1,7 +1,12 @@
 import SwiftUI
 
 struct PiHoleDashboardView: View {
+    @Environment(ServerManager.self) private var serverManager
     let service: ServiceInfo
+
+    @State private var piholePassword = ""
+    @State private var isAuthenticating = false
+    @State private var authError: String?
 
     private var accent: Color { serviceAccent(for: "pihole") }
 
@@ -69,7 +74,7 @@ struct PiHoleDashboardView: View {
     // MARK: - Auth Required
 
     private var authRequiredCard: some View {
-        VStack(spacing: 12) {
+        VStack(spacing: 16) {
             Image(systemName: "lock.shield")
                 .font(.largeTitle)
                 .foregroundStyle(accent.opacity(0.6))
@@ -77,14 +82,59 @@ struct PiHoleDashboardView: View {
             Text("Authentication Required")
                 .font(.headline)
 
-            Text("Pi-hole v6 requires a password to access detailed stats. API key support is coming soon.")
+            Text("Pi-hole v6 requires a password to access detailed stats.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
+
+            VStack(spacing: 10) {
+                SecureField("Pi-hole password", text: $piholePassword)
+                    .textFieldStyle(.roundedBorder)
+                    .onSubmit { authenticate() }
+
+                Button {
+                    authenticate()
+                } label: {
+                    HStack(spacing: 6) {
+                        if isAuthenticating {
+                            ProgressView()
+                                .controlSize(.small)
+                        }
+                        Text("Connect")
+                    }
+                    .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(accent)
+                .disabled(piholePassword.isEmpty || isAuthenticating)
+
+                if let authError {
+                    Text(authError)
+                        .font(.caption)
+                        .foregroundStyle(Theme.critical)
+                }
+            }
+            .frame(maxWidth: 240)
         }
         .frame(maxWidth: .infinity)
         .padding(24)
         .cardStyle(cornerRadius: 12)
+    }
+
+    private func authenticate() {
+        guard !piholePassword.isEmpty else { return }
+        isAuthenticating = true
+        authError = nil
+
+        Task {
+            do {
+                _ = try await serverManager.configureService(pluginId: "pihole", password: piholePassword)
+                piholePassword = ""
+            } catch {
+                authError = error.localizedDescription
+            }
+            isAuthenticating = false
+        }
     }
 
     // MARK: - Stats Grid

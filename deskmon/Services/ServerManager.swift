@@ -201,6 +201,17 @@ final class ServerManager {
         // Process list will update via the SSE stream automatically
     }
 
+    func configureService(pluginId: String, password: String) async throws -> String {
+        guard let server = selectedServer else { throw AgentError.invalidURL }
+        return try await client.configureService(
+            host: server.host,
+            port: server.port,
+            token: server.token,
+            pluginId: pluginId,
+            password: password
+        )
+    }
+
     func restartAgent() async throws -> String {
         guard let server = selectedServer else { throw AgentError.invalidURL }
         return try await client.restartAgent(
