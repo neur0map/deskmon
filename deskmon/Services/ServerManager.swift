@@ -7,13 +7,7 @@ final class ServerManager {
     var servers: [ServerInfo] = []
     var selectedServerID: UUID?
     var isPolling = false
-    var pollingInterval: TimeInterval = 3 {
-        didSet {
-            guard oldValue != pollingInterval, isPolling else { return }
-            stopPolling()
-            startPolling()
-        }
-    }
+    var pollingInterval: TimeInterval = 3
 
     static let intervalOptions: [(label: String, value: TimeInterval)] = [
         ("1s", 1), ("3s", 3), ("5s", 5), ("10s", 10), ("30s", 30), ("60s", 60)
@@ -47,19 +41,18 @@ final class ServerManager {
         guard !isPolling else { return }
         isPolling = true
         pollingTask = Task { [weak self] in
+            var lastPoll = ContinuousClock.Instant.now - .seconds(999)
             while !Task.isCancelled {
                 guard let self else { break }
-                let start = ContinuousClock.now
-                await self.refreshData()
-                let elapsed = ContinuousClock.now - start
-                let target = Duration.seconds(self.pollingInterval)
-                let remaining = target - elapsed
-                if remaining > .zero {
-                    do {
-                        try await Task.sleep(for: remaining)
-                    } catch {
-                        break
-                    }
+                let elapsed = ContinuousClock.now - lastPoll
+                if elapsed >= .seconds(self.pollingInterval) {
+                    lastPoll = ContinuousClock.now
+                    await self.refreshData()
+                }
+                do {
+                    try await Task.sleep(for: .milliseconds(500))
+                } catch {
+                    break
                 }
             }
         }
