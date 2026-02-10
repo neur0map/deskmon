@@ -39,3 +39,4 @@ coverage.html
 
 # Release builds
 /releases/
+\n# Xcode\nxcuserdata/\n*.xcuserstate
