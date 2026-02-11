@@ -8,6 +8,7 @@ struct PiHoleDashboardView: View {
     @State private var isAuthenticating = false
     @State private var authError: String?
     @State private var isTogglingBlocking = false
+    @State private var blockingError: String?
 
     private var accent: Color { serviceAccent(for: "pihole") }
 
@@ -200,30 +201,39 @@ struct PiHoleDashboardView: View {
     // MARK: - Blocking Control
 
     private var blockingControlCard: some View {
-        HStack {
-            VStack(alignment: .leading, spacing: 2) {
-                Text("DNS Blocking")
-                    .font(.callout.weight(.medium))
-                Text(isBlocking ? "Blocking ads and trackers" : "Blocking is disabled")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
+        VStack(spacing: 8) {
+            HStack {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("DNS Blocking")
+                        .font(.callout.weight(.medium))
+                    Text(isBlocking ? "Blocking ads and trackers" : "Blocking is disabled")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
+
+                Spacer()
+
+                if isTogglingBlocking {
+                    ProgressView()
+                        .controlSize(.small)
+                } else {
+                    Button {
+                        toggleBlocking()
+                    } label: {
+                        Text(isBlocking ? "Disable" : "Enable")
+                            .font(.caption.weight(.medium))
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .tint(isBlocking ? Theme.critical.opacity(0.8) : Theme.healthy)
+                    .controlSize(.small)
+                }
             }
 
-            Spacer()
-
-            if isTogglingBlocking {
-                ProgressView()
-                    .controlSize(.small)
-            } else {
-                Button {
-                    toggleBlocking()
-                } label: {
-                    Text(isBlocking ? "Disable" : "Enable")
-                        .font(.caption.weight(.medium))
-                }
-                .buttonStyle(.borderedProminent)
-                .tint(isBlocking ? Theme.critical.opacity(0.8) : Theme.healthy)
-                .controlSize(.small)
+            if let blockingError {
+                Text(blockingError)
+                    .font(.caption2)
+                    .foregroundStyle(Theme.critical)
+                    .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
         .padding(14)
@@ -232,6 +242,7 @@ struct PiHoleDashboardView: View {
 
     private func toggleBlocking() {
         isTogglingBlocking = true
+        blockingError = nil
 
         Task {
             do {
@@ -244,7 +255,7 @@ struct PiHoleDashboardView: View {
                 try? await Task.sleep(for: .seconds(2))
                 await serverManager.refreshStats()
             } catch {
-                // Silently handle — the SSE stream will update the UI
+                blockingError = error.localizedDescription
             }
             isTogglingBlocking = false
         }
