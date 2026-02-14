@@ -12,7 +12,7 @@ struct SystemMetricsCard: View {
                 icon: "cpu",
                 title: "CPU",
                 percent: stats.cpu.usagePercent,
-                subtitle: "\(stats.cpu.coreCount) cores · \(Int(stats.cpu.temperature))°C",
+                subtitle: cpuSubtitle,
                 tint: Theme.cpu,
                 tintLight: Theme.cpuLight
             )
@@ -30,20 +30,41 @@ struct SystemMetricsCard: View {
                 tintLight: Theme.memoryLight
             )
 
-            Divider()
-                .background(Theme.cardBorder)
-                .padding(.horizontal, 14)
+            ForEach(stats.disks) { disk in
+                Divider()
+                    .background(Theme.cardBorder)
+                    .padding(.horizontal, 14)
 
-            MetricRow(
-                icon: "internaldrive",
-                title: "Disk",
-                percent: stats.disk.usagePercent,
-                subtitle: "\(ByteFormatter.format(stats.disk.usedBytes)) / \(ByteFormatter.format(stats.disk.totalBytes))",
-                tint: Theme.disk,
-                tintLight: Theme.diskLight
-            )
+                MetricRow(
+                    icon: "internaldrive",
+                    title: disk.label,
+                    percent: disk.usagePercent,
+                    subtitle: "\(ByteFormatter.format(disk.usedBytes)) / \(ByteFormatter.format(disk.totalBytes))",
+                    tint: diskTint(disk.usagePercent),
+                    tintLight: diskTintLight(disk.usagePercent)
+                )
+            }
         }
         .cardStyle(cornerRadius: 16)
+    }
+
+    private var cpuSubtitle: String {
+        if stats.cpu.temperatureAvailable {
+            return "\(stats.cpu.coreCount) cores · \(Int(stats.cpu.temperature))°C"
+        }
+        return "\(stats.cpu.coreCount) cores"
+    }
+
+    private func diskTint(_ percent: Double) -> Color {
+        if percent > 90 { return Theme.critical }
+        if percent > 75 { return Theme.warning }
+        return Theme.disk
+    }
+
+    private func diskTintLight(_ percent: Double) -> Color {
+        if percent > 90 { return Theme.critical.opacity(0.7) }
+        if percent > 75 { return Theme.warning.opacity(0.7) }
+        return Theme.diskLight
     }
 }
 

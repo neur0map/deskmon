@@ -9,6 +9,7 @@ final class ServerManager {
     var servers: [ServerInfo] = []
     var selectedServerID: UUID?
     var isConnected = false
+    var alertManager: AlertManager?
 
     private static let log = Logger(subsystem: "prowlsh.deskmon", category: "ServerManager")
     private let client = AgentClient.shared
@@ -249,11 +250,21 @@ final class ServerManager {
                             if serverID == selectedServerID {
                                 isConnected = true
                             }
+                            alertManager?.evaluateSystem(
+                                serverID: serverID,
+                                serverName: server.name,
+                                stats: stats
+                            )
 
                         case .docker(let containers):
                             withAnimation(.easeInOut(duration: 0.5)) {
                                 server.containers = containers
                             }
+                            alertManager?.evaluateContainers(
+                                serverID: serverID,
+                                serverName: server.name,
+                                containers: containers
+                            )
 
                         case .keepalive:
                             break
@@ -397,6 +408,7 @@ final class ServerManager {
         sshManagers[server.id]?.disconnect()
         sshManagers.removeValue(forKey: server.id)
         KeychainStore.deleteAll(for: server.id)
+        alertManager?.removeConfig(for: server.id)
         servers.removeAll { $0.id == server.id }
         if selectedServerID == server.id {
             selectedServerID = servers.first?.id

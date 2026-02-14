@@ -11,11 +11,15 @@ struct SettingsView: View {
                 serversTab
             }
 
+            Tab("Alerts", systemImage: "bell.badge") {
+                AlertConfigView()
+            }
+
             Tab("General", systemImage: "gear") {
                 generalTab
             }
         }
-        .frame(width: 480, height: 320)
+        .frame(width: 480, height: 380)
         .preferredColorScheme(.dark)
         .sheet(isPresented: $showingAddServer) {
             AddServerSheet()

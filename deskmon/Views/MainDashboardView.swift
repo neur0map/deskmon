@@ -392,12 +392,14 @@ struct MainDashboardView: View {
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
 
-            Divider().frame(height: 16).overlay(Theme.cardBorder)
+            if stats.cpu.temperatureAvailable {
+                Divider().frame(height: 16).overlay(Theme.cardBorder)
 
-            Label(String(format: "%.0f\u{00B0}C", stats.cpu.temperature), systemImage: "thermometer.medium")
-                .font(.subheadline.monospacedDigit())
-                .foregroundStyle(.secondary)
-                .contentTransition(.numericText())
+                Label(String(format: "%.0f\u{00B0}C", stats.cpu.temperature), systemImage: "thermometer.medium")
+                    .font(.subheadline.monospacedDigit())
+                    .foregroundStyle(.secondary)
+                    .contentTransition(.numericText())
+            }
 
             Spacer()
         }

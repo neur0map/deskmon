@@ -57,10 +57,10 @@ final class ServerInfo: Identifiable {
         self.hasKeyInstalled = hasKeyInstalled
     }
 
-    func appendNetworkSample(_ network: NetworkStats) {
+    func appendNetworkSample(_ network: NetworkReport) {
         let sample = NetworkSample(
-            download: network.downloadBytesPerSec,
-            upload: network.uploadBytesPerSec,
+            download: network.physical.downloadBytesPerSec,
+            upload: network.physical.uploadBytesPerSec,
             time: Date.timeIntervalSinceReferenceDate
         )
         networkHistory.append(sample)

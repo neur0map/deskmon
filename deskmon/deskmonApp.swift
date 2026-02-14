@@ -4,12 +4,18 @@ import SwiftUI
 struct deskmonApp: App {
     @State private var serverManager = ServerManager()
     @State private var lockManager = AppLockManager()
+    @State private var alertManager = AlertManager()
 
     var body: some Scene {
         MenuBarExtra {
             DashboardView()
                 .environment(serverManager)
                 .environment(lockManager)
+                .environment(alertManager)
+                .task {
+                    serverManager.alertManager = alertManager
+                    alertManager.requestPermissionIfNeeded()
+                }
         } label: {
             MenuBarLabel(status: serverManager.currentStatus)
         }
@@ -19,6 +25,7 @@ struct deskmonApp: App {
             MainDashboardView()
                 .environment(serverManager)
                 .environment(lockManager)
+                .environment(alertManager)
         }
         .windowStyle(.hiddenTitleBar)
         .defaultSize(width: 900, height: 640)
@@ -27,6 +34,7 @@ struct deskmonApp: App {
             SettingsView()
                 .environment(serverManager)
                 .environment(lockManager)
+                .environment(alertManager)
         }
     }
 }

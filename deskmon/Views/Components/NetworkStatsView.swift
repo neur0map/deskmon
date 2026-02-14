@@ -1,7 +1,7 @@
 import SwiftUI
 
 struct NetworkStatsView: View {
-    let network: NetworkStats
+    let network: NetworkReport
     let history: [NetworkSample]
 
     var body: some View {
@@ -22,7 +22,7 @@ struct NetworkStatsView: View {
                         Image(systemName: "arrow.down")
                             .font(.system(size: 8, weight: .bold))
                             .foregroundStyle(Theme.download)
-                        Text(ByteFormatter.formatSpeed(network.downloadBytesPerSec))
+                        Text(ByteFormatter.formatSpeed(network.physical.downloadBytesPerSec))
                             .font(.caption2.monospacedDigit().weight(.medium))
                             .contentTransition(.numericText())
                     }
@@ -31,9 +31,19 @@ struct NetworkStatsView: View {
                         Image(systemName: "arrow.up")
                             .font(.system(size: 8, weight: .bold))
                             .foregroundStyle(Theme.upload)
-                        Text(ByteFormatter.formatSpeed(network.uploadBytesPerSec))
+                        Text(ByteFormatter.formatSpeed(network.physical.uploadBytesPerSec))
                             .font(.caption2.monospacedDigit().weight(.medium))
                             .contentTransition(.numericText())
+                    }
+
+                    if network.physical.hasErrors {
+                        HStack(spacing: 2) {
+                            Image(systemName: "exclamationmark.triangle.fill")
+                                .font(.system(size: 7))
+                            Text("\(network.physical.totalDrops + network.physical.totalErrors) err")
+                                .font(.caption2.monospacedDigit())
+                        }
+                        .foregroundStyle(Theme.critical)
                     }
                 }
             }
