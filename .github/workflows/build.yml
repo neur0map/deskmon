@@ -69,9 +69,28 @@ jobs:
           name: Deskmon.dmg
           path: Deskmon.dmg
 
-      - name: Create GitHub Release
+      - name: Create versioned release
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
           generate_release_notes: true
+          files: Deskmon.dmg
+
+      - name: Update latest release
+        if: github.ref == 'refs/heads/main'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: latest
+          name: Latest Build
+          body: |
+            Automatically built from the latest commit on `main`.
+
+            **Commit:** ${{ github.sha }}
+            **Date:** ${{ github.event.head_commit.timestamp }}
+
+            Download `Deskmon.dmg` below, open it, and drag Deskmon into Applications.
+
+            > First launch: macOS will block it because it's unsigned. Go to **System Settings > Privacy & Security**, scroll down, and click **Open Anyway**.
+          prerelease: true
+          make_latest: false
           files: Deskmon.dmg
