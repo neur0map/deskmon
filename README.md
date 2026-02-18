@@ -102,6 +102,23 @@ sudo make setup
 
 The agent listens on `127.0.0.1:7654` (localhost only). See the [agent repo](https://github.com/neur0map/deskmon-agent) for configuration, troubleshooting, and what each Docker flag does.
 
+**Uninstalling the agent:**
+
+Docker:
+```bash
+docker stop deskmon-agent && docker rm deskmon-agent
+```
+
+Prebuilt binary:
+```bash
+curl -fsSL https://raw.githubusercontent.com/neur0map/deskmon-agent/main/scripts/install.sh | sudo bash -s -- --uninstall
+```
+
+Built from source:
+```bash
+cd deskmon-agent && sudo make uninstall
+```
+
 ### 2. Install the macOS app
 
 **Option A: Download the DMG** (recommended)
