@@ -204,12 +204,12 @@ Top processes sorted by memory usage with stabilization to prevent flickering. C
 | | |
 |---|---|
 | **Language** | Go |
-| **System stats** | gopsutil |
+| **System stats** | /proc and /sys (direct reads) |
 | **Docker** | Docker SDK via socket |
 | **Services** | Auto-detection with plugin collectors |
 | **Server** | net/http with SSE streaming |
 | **Config** | YAML |
-| **Distribution** | Static binary (amd64, arm64) |
+| **Distribution** | Static binary, Docker image (amd64, arm64) |
 
 ---
 
@@ -251,7 +251,7 @@ Agent source: [github.com/neur0map/deskmon-agent](https://github.com/neur0map/de
 
 ## Agent API
 
-The app connects via SSE at `GET /stats/stream` with Bearer token auth. Events arrive at different intervals:
+The app connects via SSH tunnel, then streams live data via SSE at `GET /stats/stream`. Events arrive at different intervals:
 
 | Event | Interval | Data |
 |-------|----------|------|
