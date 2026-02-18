@@ -65,30 +65,52 @@ No cloud. No accounts. No telemetry. The app talks directly to your agent over y
 
 ### 1. Install the agent on your server
 
+**Docker (recommended for unRAID / TrueNAS):**
+
+Open a terminal on your server (unRAID: click the `>_` icon in the top-right of the web UI), then paste this entire command and press Enter:
+
 ```bash
-curl -fsSL https://raw.githubusercontent.com/neur0map/deskmon-agent/main/scripts/install.sh | bash
+docker run -d \
+  --name deskmon-agent \
+  --pid=host \
+  --network=host \
+  -v /:/hostfs:ro,rslave \
+  -v /sys:/host/sys:ro \
+  -v /var/run/docker.sock:/var/run/docker.sock \
+  -v /etc/deskmon:/etc/deskmon \
+  -e DESKMON_HOST_ROOT=/hostfs \
+  -e DESKMON_HOST_SYS=/host/sys \
+  --restart unless-stopped \
+  ghcr.io/neur0map/deskmon-agent:latest
 ```
 
-Or build from source:
+That's it. The agent will start automatically and survive reboots. Your host filesystem is mounted read-only — the agent cannot modify your files or array.
+
+**Prebuilt binary (Ubuntu, Debian, Fedora, etc.):**
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/neur0map/deskmon-agent/main/scripts/install-remote.sh | sudo bash
+```
+
+**Build from source (requires Go 1.22+):**
 
 ```bash
 git clone https://github.com/neur0map/deskmon-agent.git
 cd deskmon-agent
-make build
-sudo make install
+sudo make setup
 ```
 
-The agent runs as a systemd service on port 7654. See the [agent repo](https://github.com/neur0map/deskmon-agent) for configuration options.
+The agent listens on `127.0.0.1:7654` (localhost only). See the [agent repo](https://github.com/neur0map/deskmon-agent) for configuration, troubleshooting, and what each Docker flag does.
 
 ### 2. Install the macOS app
 
-**Option A: Buy the signed build — $19** (recommended)
+**Option A: Download the DMG** (recommended)
 
-Download a ready-to-run, Apple-signed and notarized DMG from [deskmon.prowl.sh](https://deskmon.prowl.sh).
+Go to the [Actions tab](https://github.com/neur0map/deskmon/actions) on GitHub, click the latest successful build, and download the **Deskmon.dmg** artifact. Open it and drag Deskmon to your Applications folder.
 
-No Xcode. No code signing. No Gatekeeper warnings. Just download, drag to Applications, done.
+> **Gatekeeper warning:** Since the build is unsigned, macOS will block it the first time. Right-click the app > Open > Open to bypass. This only happens once.
 
-**Option B: Build from source — free**
+**Option B: Build from source**
 
 ```bash
 git clone https://github.com/neur0map/deskmon.git
@@ -96,17 +118,15 @@ cd deskmon
 open deskmon.xcodeproj
 ```
 
-Change the signing team to your Apple ID, then build and run (Cmd+R). You get the exact same app — every feature, no limits. Self-built versions are unsigned, which means Gatekeeper warnings and no automatic updates.
+Change the signing team to your Apple ID, then build and run (Cmd+R). Requires Xcode 16+.
 
 ### 3. Add your server
 
-Click the menu bar icon, go to Settings, and add your server's IP address and auth token.
-
-### Why pay?
-
-Everything is open source. The code is right here. You can fork it, build it, modify it — no restrictions.
-
-The $19 buys you convenience: a signed, notarized macOS app that just works. No Xcode install (12 GB), no developer account setup, no fighting Gatekeeper, no manual updates. You're paying for the time saved, not the code.
+1. Click the Deskmon icon in your Mac's menu bar
+2. Go to **Settings** > **+ Add Server**
+3. Enter your server's IP address (e.g. `192.168.1.100`) — this is the same IP you use to access your server's web UI
+4. Enter your SSH username and password (unRAID: username is `root`, password is the one you set during setup)
+5. Green dot = connected and receiving data
 
 ---
 
@@ -245,6 +265,7 @@ See [`docs/agent-api-contract.md`](docs/agent-api-contract.md) for full schemas.
 
 ### Future
 
+- [ ] Signed and notarized DMG (Apple Developer subscription — no Gatekeeper warnings)
 - [ ] Notifications and alerts (CPU/memory/disk thresholds, container down, service offline)
 - [ ] UI/UX improvements
 - [ ] iOS companion app

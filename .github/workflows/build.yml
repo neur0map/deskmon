@@ -1,0 +1,65 @@
+name: Build DMG
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  build:
+    runs-on: macos-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve Swift packages
+        run: |
+          xcodebuild -resolvePackageDependencies \
+            -project deskmon.xcodeproj \
+            -scheme deskmon
+
+      - name: Build Release
+        run: |
+          xcodebuild build \
+            -project deskmon.xcodeproj \
+            -scheme deskmon \
+            -configuration Release \
+            -derivedDataPath build \
+            CODE_SIGN_IDENTITY="-" \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=NO \
+            DEVELOPMENT_TEAM=""
+
+      - name: Create DMG
+        run: |
+          APP_PATH="build/Build/Products/Release/deskmon.app"
+
+          if [ ! -d "$APP_PATH" ]; then
+            echo "Error: deskmon.app not found at $APP_PATH"
+            echo "Contents of build directory:"
+            find build -name "*.app" -type d 2>/dev/null
+            exit 1
+          fi
+
+          # Create staging folder with app and Applications symlink (drag-to-install)
+          mkdir -p dmg-staging
+          cp -R "$APP_PATH" dmg-staging/
+          ln -s /Applications dmg-staging/Applications
+
+          # Create compressed DMG
+          hdiutil create \
+            -volname "Deskmon" \
+            -srcfolder dmg-staging \
+            -ov \
+            -format UDZO \
+            deskmon.dmg
+
+          echo "DMG created successfully"
+          ls -lh deskmon.dmg
+
+      - name: Upload DMG
+        uses: actions/upload-artifact@v4
+        with:
+          name: Deskmon.dmg
+          path: deskmon.dmg
