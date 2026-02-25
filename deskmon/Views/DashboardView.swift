@@ -37,6 +37,7 @@ struct DashboardView: View {
         .clipped()
         .frame(width: 380, height: 580)
         .background(Theme.background)
+        .colorScheme(.dark)
         .preferredColorScheme(.dark)
         .onDisappear {
             lockManager.lock(.menuBar)
