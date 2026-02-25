@@ -32,6 +32,7 @@ final class ServerInfo: Identifiable {
     var networkHistory: [NetworkSample] = []
     var connectionPhase: ConnectionPhase = .disconnected
     var hasConnectedOnce = false
+    var keyPath: String?
 
     /// Keep enough samples to cover the visible window plus a small buffer
     /// for the Catmull-Rom spline context at edges.
@@ -46,7 +47,8 @@ final class ServerInfo: Identifiable {
         username: String,
         sshPort: Int = 22,
         agentPort: Int = 7654,
-        hasKeyInstalled: Bool = false
+        hasKeyInstalled: Bool = false,
+        keyPath: String? = nil
     ) {
         self.id = id
         self.name = name
@@ -55,6 +57,7 @@ final class ServerInfo: Identifiable {
         self.sshPort = sshPort
         self.agentPort = agentPort
         self.hasKeyInstalled = hasKeyInstalled
+        self.keyPath = keyPath
     }
 
     func appendNetworkSample(_ network: NetworkReport) {

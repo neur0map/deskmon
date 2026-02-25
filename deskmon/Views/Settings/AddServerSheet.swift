@@ -1,4 +1,5 @@
 import SwiftUI
+import UniformTypeIdentifiers
 
 struct AddServerSheet: View {
     @Environment(ServerManager.self) private var serverManager
@@ -8,15 +9,20 @@ struct AddServerSheet: View {
     @State private var host = ""
     @State private var username = ""
     @State private var password = ""
+    @State private var useKeyAuth = false
+    @State private var keyFileData: Data?
+    @State private var keyFileName = ""
+    @State private var passphrase = ""
+    @State private var showFilePicker = false
 
     @State private var isConnecting = false
     @State private var errorMessage: String?
 
     private var isValid: Bool {
-        !name.trimmingCharacters(in: .whitespaces).isEmpty &&
-        !host.trimmingCharacters(in: .whitespaces).isEmpty &&
-        !username.trimmingCharacters(in: .whitespaces).isEmpty &&
-        !password.isEmpty
+        let fieldsOK = !name.trimmingCharacters(in: .whitespaces).isEmpty &&
+                       !host.trimmingCharacters(in: .whitespaces).isEmpty &&
+                       !username.trimmingCharacters(in: .whitespaces).isEmpty
+        return fieldsOK && (useKeyAuth ? keyFileData != nil : !password.isEmpty)
     }
 
     var body: some View {
@@ -29,8 +35,26 @@ struct AddServerSheet: View {
             VStack(alignment: .leading, spacing: 14) {
                 field("Name", text: $name, prompt: "Homelab")
                 field("Host / IP", text: $host, prompt: "192.168.1.100")
-                field("SSH Username", text: $username, prompt: "pi")
-                secureField("SSH Password", text: $password, prompt: "Password")
+                field("SSH Username", text: $username, prompt: "root")
+
+                // Auth method selector
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Authentication")
+                        .font(.caption.weight(.medium))
+                        .foregroundStyle(.secondary)
+                    Picker("", selection: $useKeyAuth) {
+                        Text("Password").tag(false)
+                        Text("SSH Key").tag(true)
+                    }
+                    .pickerStyle(.segmented)
+                    .labelsHidden()
+                }
+
+                if useKeyAuth {
+                    keyFilePicker
+                } else {
+                    secureField("SSH Password", text: $password, prompt: "Password")
+                }
             }
 
             if let errorMessage {
@@ -73,6 +97,42 @@ struct AddServerSheet: View {
         .frame(minHeight: 340)
         .background(Theme.background)
         .preferredColorScheme(.dark)
+        .fileImporter(
+            isPresented: $showFilePicker,
+            allowedContentTypes: [.item],
+            allowsMultipleSelection: false
+        ) { result in
+            guard case .success(let urls) = result, let url = urls.first else { return }
+            let accessed = url.startAccessingSecurityScopedResource()
+            defer { if accessed { url.stopAccessingSecurityScopedResource() } }
+            if let data = try? Data(contentsOf: url) {
+                keyFileData = data
+                keyFileName = url.lastPathComponent
+            }
+        }
+    }
+
+    private var keyFilePicker: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Private Key File")
+                    .font(.caption.weight(.medium))
+                    .foregroundStyle(.secondary)
+                HStack(spacing: 8) {
+                    Text(keyFileName.isEmpty ? "No file selected" : keyFileName)
+                        .foregroundStyle(keyFileName.isEmpty ? .quaternary : .primary)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 5)
+                        .background(.quaternary.opacity(0.3), in: RoundedRectangle(cornerRadius: 5))
+                    Button("Choose…") { showFilePicker = true }
+                        .fixedSize()
+                }
+            }
+            secureField("Passphrase", text: $passphrase, prompt: "Leave empty if none")
+        }
     }
 
     private func connectAndAdd() async {
@@ -84,7 +144,6 @@ struct AddServerSheet: View {
         let trimmedUsername = username.trimmingCharacters(in: .whitespaces)
         let trimmedName = name.trimmingCharacters(in: .whitespaces)
 
-        // Create server first, then attempt SSH connection
         let server = serverManager.addServer(
             name: trimmedName,
             host: trimmedHost,
@@ -92,10 +151,13 @@ struct AddServerSheet: View {
         )
 
         do {
-            try await serverManager.connectServer(server, password: password)
+            if useKeyAuth, let data = keyFileData {
+                try await serverManager.connectServer(server, keyData: data, passphrase: passphrase.isEmpty ? nil : passphrase)
+            } else {
+                try await serverManager.connectServer(server, password: password)
+            }
             dismiss()
         } catch {
-            // Remove the server if connection failed
             serverManager.deleteServer(server)
             errorMessage = Self.friendlyError(error)
         }
@@ -114,6 +176,9 @@ struct AddServerSheet: View {
         }
         if msg.contains("IOError") && msg.contains("error 60") {
             return "Connection timed out — host may be unreachable"
+        }
+        if msg.contains("error 4") {
+            return "SSH key not authorized — verify the key is in ~/.ssh/authorized_keys on the server"
         }
         return msg
     }

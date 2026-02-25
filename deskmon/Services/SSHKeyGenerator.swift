@@ -80,4 +80,55 @@ enum SSHKeyGenerator {
         }
         log.info("Public key installed successfully")
     }
+
+    // MARK: - OpenSSH Private Key Parsing
+
+    /// Parse a Curve25519 ed25519 private key from raw OpenSSH private key file data.
+    ///
+    /// Supports both unencrypted keys and passphrase-protected keys (aes128-ctr / aes256-ctr
+    /// with bcrypt KDF) — the standard format produced by `ssh-keygen -t ed25519`.
+    ///
+    /// - Parameters:
+    ///   - data: Raw bytes of the `-----BEGIN OPENSSH PRIVATE KEY-----` file.
+    ///   - passphrase: The key's passphrase, or `nil` for unencrypted keys.
+    static func parsePrivateKey(from data: Data, passphrase: String? = nil) throws -> Curve25519.Signing.PrivateKey {
+        let decryptionKey = passphrase.flatMap { $0.isEmpty ? nil : $0.data(using: .utf8) }
+        do {
+            return try Curve25519.Signing.PrivateKey(sshEd25519: data, decryptionKey: decryptionKey)
+        } catch {
+            // OpenSSH.KeyError.missingDecryptionKey is internal to Citadel, so identify by description.
+            let desc = String(describing: error)
+            if desc.contains("missingDecryptionKey") {
+                throw KeyLoadError.passphraseRequired
+            }
+            // invalidCheck means the checkbytes didn't match after decryption — wrong passphrase,
+            // or the key is encrypted and no passphrase was supplied.
+            if desc.contains("invalidCheck") {
+                throw decryptionKey != nil ? KeyLoadError.wrongPassphrase : KeyLoadError.passphraseRequired
+            }
+            if error is InvalidOpenSSHKey {
+                throw KeyLoadError.invalidFormat
+            }
+            throw error
+        }
+    }
+}
+
+// MARK: - Key Load Errors
+
+enum KeyLoadError: LocalizedError {
+    case invalidFormat
+    case passphraseRequired
+    case wrongPassphrase
+
+    var errorDescription: String? {
+        switch self {
+        case .invalidFormat:
+            "Invalid or unrecognized SSH private key file (only ed25519 keys are supported)"
+        case .passphraseRequired:
+            "This key is passphrase-protected — enter the passphrase below"
+        case .wrongPassphrase:
+            "Incorrect passphrase"
+        }
+    }
 }

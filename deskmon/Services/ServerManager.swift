@@ -78,6 +78,53 @@ final class ServerManager {
         }
     }
 
+    /// Connect to a server using SSH key file data for authentication.
+    /// Called from AddServerSheet when the user selects an SSH key file.
+    func connectServer(_ server: ServerInfo, keyData: Data, passphrase: String? = nil) async throws {
+        let ssh = SSHManager()
+        sshManagers[server.id] = ssh
+
+        server.connectionPhase = .sshConnecting
+
+        // Parse the OpenSSH private key from file data (handles encrypted keys via passphrase)
+        let privateKey = try SSHKeyGenerator.parsePrivateKey(from: keyData, passphrase: passphrase)
+
+        // SSH connect with key
+        try await ssh.connect(
+            host: server.host,
+            port: server.sshPort,
+            username: server.username,
+            privateKey: privateKey
+        )
+
+        // Open tunnel
+        try await ssh.openTunnel(remotePort: server.agentPort)
+        server.connectionPhase = .tunnelOpen
+
+        // Verify agent is reachable through tunnel
+        guard let url = ssh.tunnelBaseURL else {
+            throw SSHTunnelError.notConnected
+        }
+
+        let response = try await client.fetchStats(baseURL: url)
+        applyFullSnapshot(server: server, response: response)
+
+        // Wire disconnect handler
+        ssh.onDisconnect { [weak self] in
+            Task { @MainActor [weak self] in
+                self?.handleSSHDisconnect(serverID: server.id)
+            }
+        }
+
+        // Start SSE stream
+        startStream(for: server)
+
+        // Background: generate and install SSH key for future reconnects
+        Task {
+            await installSSHKey(for: server, ssh: ssh)
+        }
+    }
+
     /// Reconnect a saved server using stored credentials (key first, then password fallback).
     func reconnectServer(_ server: ServerInfo) async {
         let ssh = SSHManager()
