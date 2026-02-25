@@ -104,6 +104,15 @@ struct N8nClient {
         return try JSONDecoder().decode(N8nListResponse<N8nExecution>.self, from: data).data
     }
 
+    /// Returns the display name for a workflow by ID, or nil on failure.
+    func fetchWorkflowName(id: String) async throws -> String? {
+        let req = try makeRequest(path: "/api/v1/workflows/\(id)")
+        let (data, response) = try await URLSession.shared.data(for: req)
+        if let http = response as? HTTPURLResponse { try checkStatus(http) }
+        struct NameOnly: Codable { let name: String }
+        return try? JSONDecoder().decode(NameOnly.self, from: data).name
+    }
+
     /// Returns the webhook path and HTTP method for a workflow's Webhook trigger node,
     /// or `nil` if the workflow has no webhook trigger.
     func fetchWebhookInfo(workflowID: String) async throws -> (path: String, method: String)? {

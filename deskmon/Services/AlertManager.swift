@@ -2,6 +2,19 @@ import Foundation
 import UserNotifications
 import os
 
+// MARK: - Notification Delegate
+
+/// Allows notifications to display as banners even while the app is in the foreground.
+private final class NotificationDelegate: NSObject, UNUserNotificationCenterDelegate {
+    func userNotificationCenter(
+        _ center: UNUserNotificationCenter,
+        willPresent notification: UNNotification,
+        withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void
+    ) {
+        completionHandler([.banner, .sound])
+    }
+}
+
 // MARK: - Alert Configuration (per-server)
 
 struct AlertConfig: Codable, Sendable {
@@ -20,6 +33,45 @@ struct AlertConfig: Codable, Sendable {
 
     var networkErrorsEnabled: Bool = true
     var networkErrorsSustained: Int = 10
+
+    // Container metrics
+    var containerCPUEnabled: Bool = false
+    var containerCPUThreshold: Double = 80
+    var containerCPUSustained: Int = 60
+
+    var containerMemoryEnabled: Bool = false
+    var containerMemoryThreshold: Double = 90
+    var containerMemorySustained: Int = 30
+
+    var containerUnhealthyEnabled: Bool = true
+    var containerRestartSpikeEnabled: Bool = true
+    var containerRestartThreshold: Int = 5
+
+    // Plugin alerts
+    var pluginAlertsEnabled: Bool = true
+
+    // Slack
+    var slackEnabled: Bool = false
+    var slackWebhookURL: String = ""
+
+    // Discord
+    var discordEnabled: Bool = false
+    var discordWebhookURL: String = ""
+
+    // Generic webhook
+    var genericWebhookEnabled: Bool = false
+    var genericWebhookURL: String = ""
+}
+
+// MARK: - Fired Alert
+
+struct FiredAlert: Identifiable {
+    let id = UUID()
+    let timestamp: Date
+    let serverName: String
+    let title: String
+    let body: String
+    let serverID: UUID
 }
 
 // MARK: - Alert Manager
@@ -43,7 +95,20 @@ final class AlertManager {
     // Track previous container states to detect running → stopped transitions
     private var previousContainerStates: [String: [String: String]] = [:] // serverID → [containerID: status]
 
+    // Container health and restart tracking
+    private var previousContainerHealthStates: [String: [String: String]] = [:]
+    private var previousRestartCounts: [String: [String: Int]] = [:]
+
     private var permissionGranted = false
+    private let notificationDelegate = NotificationDelegate()
+
+    // MARK: - Alert History
+
+    private(set) var recentAlerts: [FiredAlert] = []
+    var hasUnacknowledgedAlerts: Bool { !recentAlerts.isEmpty }
+    func clearAlerts() { recentAlerts = [] }
+
+    var selectedSettingsTab: String = "servers"
 
     // MARK: - Public API
 
@@ -82,7 +147,9 @@ final class AlertManager {
         let prefix = serverID.uuidString
         firstBreachTime = firstBreachTime.filter { !$0.key.hasPrefix(prefix) }
         lastFired = lastFired.filter { !$0.key.hasPrefix(prefix) }
-        previousContainerStates.removeValue(forKey: serverID.uuidString)
+        previousContainerStates.removeValue(forKey: prefix)
+        previousContainerHealthStates.removeValue(forKey: prefix)
+        previousRestartCounts.removeValue(forKey: prefix)
         saveConfigs()
     }
 
@@ -153,22 +220,22 @@ final class AlertManager {
     /// Called on every SSE docker event.
     func evaluateContainers(serverID: UUID, serverName: String, containers: [DockerContainer]) {
         let cfg = config(for: serverID)
-        guard cfg.containerDownEnabled else { return }
-
         let id = serverID.uuidString
         let previous = previousContainerStates[id] ?? [:]
 
-        for container in containers {
-            let prevStatus = previous[container.id]
-            // Detect running → stopped transition
-            if prevStatus == "running" && container.status != .running {
-                fireIfCooldown(
-                    key: "\(id)-container-\(container.id)",
-                    serverName: serverName,
-                    title: "Container Down",
-                    body: "\(container.name) stopped",
-                    serverID: serverID
-                )
+        // Container down
+        if cfg.containerDownEnabled {
+            for container in containers {
+                let prevStatus = previous[container.id]
+                if prevStatus == "running" && container.status != .running {
+                    fireIfCooldown(
+                        key: "\(id)-container-\(container.id)",
+                        serverName: serverName,
+                        title: "Container Down",
+                        body: "\(container.name) stopped",
+                        serverID: serverID
+                    )
+                }
             }
         }
 
@@ -176,6 +243,119 @@ final class AlertManager {
         previousContainerStates[id] = Dictionary(
             uniqueKeysWithValues: containers.map { ($0.id, $0.status.rawValue) }
         )
+
+        // Container CPU
+        if cfg.containerCPUEnabled {
+            for c in containers where c.status == .running {
+                evaluateSustained(
+                    key: "\(id)-ccpu-\(c.id)",
+                    breached: c.cpuPercent > cfg.containerCPUThreshold,
+                    sustainedSeconds: cfg.containerCPUSustained,
+                    serverName: serverName,
+                    title: "Container CPU",
+                    body: String(format: "%@ CPU at %.0f%%", c.name, c.cpuPercent),
+                    serverID: serverID
+                )
+            }
+        }
+
+        // Container memory
+        if cfg.containerMemoryEnabled {
+            for c in containers where c.status == .running {
+                evaluateSustained(
+                    key: "\(id)-cmem-\(c.id)",
+                    breached: c.memoryPercent > cfg.containerMemoryThreshold,
+                    sustainedSeconds: cfg.containerMemorySustained,
+                    serverName: serverName,
+                    title: "Container Memory",
+                    body: String(format: "%@ memory at %.0f%%", c.name, c.memoryPercent),
+                    serverID: serverID
+                )
+            }
+        }
+
+        // Container unhealthy
+        if cfg.containerUnhealthyEnabled {
+            let prevHealth = previousContainerHealthStates[id] ?? [:]
+            for c in containers where c.status == .running {
+                if prevHealth[c.id] == "healthy" && c.healthStatus == .unhealthy {
+                    fireIfCooldown(
+                        key: "\(id)-cunhealthy-\(c.id)",
+                        serverName: serverName,
+                        title: "Container Unhealthy",
+                        body: "\(c.name) health check failing",
+                        serverID: serverID
+                    )
+                }
+            }
+            previousContainerHealthStates[id] = Dictionary(
+                uniqueKeysWithValues: containers.map { ($0.id, $0.healthStatus.rawValue) }
+            )
+        }
+
+        // Container restart spike
+        if cfg.containerRestartSpikeEnabled {
+            let prevRestarts = previousRestartCounts[id] ?? [:]
+            for c in containers {
+                let prev = prevRestarts[c.id] ?? 0
+                if c.restartCount > cfg.containerRestartThreshold && c.restartCount > prev {
+                    fireIfCooldown(
+                        key: "\(id)-crestart-\(c.id)",
+                        serverName: serverName,
+                        title: "Container Restarting",
+                        body: "\(c.name) has restarted \(c.restartCount) times",
+                        serverID: serverID
+                    )
+                }
+            }
+            previousRestartCounts[id] = Dictionary(
+                uniqueKeysWithValues: containers.map { ($0.id, $0.restartCount) }
+            )
+        }
+    }
+
+    // MARK: - Plugin Alerts
+
+    func firePluginAlert(key: String, serverName: String, title: String, body: String, serverID: UUID) {
+        guard config(for: serverID).pluginAlertsEnabled else { return }
+        fireIfCooldown(key: key, serverName: serverName, title: title, body: body, serverID: serverID)
+    }
+
+    /// Fires a test alert immediately — bypasses cooldown, always delivers macOS notification + Slack if configured.
+    func fireTestAlert(serverID: UUID, serverName: String) {
+        let title = "Test Alert"
+        let body = "Notifications are working correctly."
+
+        let content = UNMutableNotificationContent()
+        content.title = "\(serverName) — \(title)"
+        content.body = body
+        content.sound = .default
+        content.threadIdentifier = serverID.uuidString
+
+        let request = UNNotificationRequest(
+            identifier: "test-\(Date().timeIntervalSince1970)",
+            content: content,
+            trigger: nil
+        )
+        UNUserNotificationCenter.current().add(request) { error in
+            if let error {
+                Self.log.error("Failed to deliver test notification: \(error.localizedDescription)")
+            }
+        }
+
+        let cfg = config(for: serverID)
+        if cfg.slackEnabled, !cfg.slackWebhookURL.isEmpty {
+            let webhookURL = cfg.slackWebhookURL
+            Task { await Self.fireSlack(webhookURL: webhookURL, serverName: serverName, title: title, body: body) }
+        }
+        if cfg.discordEnabled, !cfg.discordWebhookURL.isEmpty {
+            let webhookURL = cfg.discordWebhookURL
+            Task { await Self.fireDiscord(webhookURL: webhookURL, serverName: serverName, title: title, body: body) }
+        }
+        if cfg.genericWebhookEnabled, !cfg.genericWebhookURL.isEmpty {
+            let webhookURL = cfg.genericWebhookURL
+            Task { await Self.fireGenericWebhook(webhookURL: webhookURL, serverName: serverName, title: title, body: body) }
+        }
     }
 
     // MARK: - Private
@@ -210,6 +390,11 @@ final class AlertManager {
         lastFired[key] = Date()
         firstBreachTime.removeValue(forKey: key) // Reset sustained tracking
 
+        // Record in history
+        let fired = FiredAlert(timestamp: Date(), serverName: serverName, title: title, body: body, serverID: serverID)
+        recentAlerts.insert(fired, at: 0)
+        if recentAlerts.count > 50 { recentAlerts = Array(recentAlerts.prefix(50)) }
+
         let content = UNMutableNotificationContent()
         content.title = "\(serverName) — \(title)"
         content.body = body
@@ -228,7 +413,61 @@ final class AlertManager {
             }
         }
 
+        let cfg = config(for: serverID)
+        if cfg.slackEnabled, !cfg.slackWebhookURL.isEmpty {
+            let webhookURL = cfg.slackWebhookURL
+            Task { await Self.fireSlack(webhookURL: webhookURL, serverName: serverName, title: title, body: body) }
+        }
+        if cfg.discordEnabled, !cfg.discordWebhookURL.isEmpty {
+            let webhookURL = cfg.discordWebhookURL
+            Task { await Self.fireDiscord(webhookURL: webhookURL, serverName: serverName, title: title, body: body) }
+        }
+        if cfg.genericWebhookEnabled, !cfg.genericWebhookURL.isEmpty {
+            let webhookURL = cfg.genericWebhookURL
+            Task { await Self.fireGenericWebhook(webhookURL: webhookURL, serverName: serverName, title: title, body: body) }
+        }
+
         Self.log.info("Alert fired: \(serverName) — \(title): \(body)")
+    }
+
+    private static func fireSlack(webhookURL: String, serverName: String, title: String, body: String) async {
+        guard let url = URL(string: webhookURL) else { return }
+        let payload = ["text": "*\(serverName)* — \(title)\n\(body)"]
+        guard let data = try? JSONEncoder().encode(payload) else { return }
+        var req = URLRequest(url: url, timeoutInterval: 10)
+        req.httpMethod = "POST"
+        req.httpBody = data
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        try? await URLSession.shared.data(for: req)
+    }
+
+    private static func fireDiscord(webhookURL: String, serverName: String, title: String, body: String) async {
+        guard let url = URL(string: webhookURL) else { return }
+        let payload = ["content": "**\(serverName)** — \(title)\n\(body)"]
+        guard let data = try? JSONEncoder().encode(payload) else { return }
+        var req = URLRequest(url: url, timeoutInterval: 10)
+        req.httpMethod = "POST"
+        req.httpBody = data
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        try? await URLSession.shared.data(for: req)
+    }
+
+    private static func fireGenericWebhook(webhookURL: String, serverName: String, title: String, body: String) async {
+        struct Payload: Encodable {
+            let serverName: String
+            let title: String
+            let body: String
+            let timestamp: String
+        }
+        guard let url = URL(string: webhookURL) else { return }
+        let payload = Payload(serverName: serverName, title: title, body: body,
+                              timestamp: ISO8601DateFormatter().string(from: Date()))
+        guard let data = try? JSONEncoder().encode(payload) else { return }
+        var req = URLRequest(url: url, timeoutInterval: 10)
+        req.httpMethod = "POST"
+        req.httpBody = data
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        try? await URLSession.shared.data(for: req)
     }
 
     // MARK: - Persistence
@@ -237,6 +476,7 @@ final class AlertManager {
 
     init() {
         loadConfigs()
+        UNUserNotificationCenter.current().delegate = notificationDelegate
     }
 
     private func loadConfigs() {

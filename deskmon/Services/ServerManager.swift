@@ -28,6 +28,7 @@ final class ServerManager {
     private let client = AgentClient.shared
     private var sshManagers: [UUID: SSHManager] = [:]
     private var streamTasks: [UUID: Task<Void, Never>] = [:]
+    private var pluginAlertTask: Task<Void, Never>?
 
     var selectedServer: ServerInfo? {
         servers.first { $0.id == selectedServerID }
@@ -249,10 +250,13 @@ final class ServerManager {
             guard streamTasks[server.id] == nil else { continue }
             Task { await reconnectServer(server) }
         }
+        startPluginAlertPolling()
     }
 
     /// Stops all SSE streams and SSH connections.
     func stopStreaming() {
+        pluginAlertTask?.cancel()
+        pluginAlertTask = nil
         for (_, task) in streamTasks {
             task.cancel()
         }
@@ -570,6 +574,53 @@ final class ServerManager {
         guard let server = selectedServer,
               let ssh = sshManagers[server.id] else { throw SSHTunnelError.notConnected }
         return try await ssh.executeCommand(command)
+    }
+
+    // MARK: - Plugin Alert Polling
+
+    private func startPluginAlertPolling() {
+        pluginAlertTask?.cancel()
+        pluginAlertTask = Task { [weak self] in
+            do { try await Task.sleep(for: .seconds(30)) } catch { return }  // initial delay
+            while !Task.isCancelled {
+                await self?.pollPluginAlerts()
+                do { try await Task.sleep(for: .seconds(60)) } catch { return }
+            }
+        }
+    }
+
+    private func pollPluginAlerts() async {
+        guard let alertManager else { return }
+        for server in servers where server.connectionPhase == .live {
+            guard alertManager.config(for: server.id).pluginAlertsEnabled else { continue }
+            let sid = server.id
+            let sname = server.name
+            for container in server.containers where container.status == .running {
+                guard let plugin = PluginRegistry.shared.plugin(for: container.image),
+                      !plugin.alertMetrics.isEmpty else { continue }
+                let context = PluginAlertContext(
+                    serverID: sid, container: container,
+                    getURL: { [weak self] port in
+                        guard let self else { throw URLError(.cancelled) }
+                        return try await self.pluginTunnelURL(for: sid, remotePort: port)
+                    }
+                )
+                for metric in plugin.alertMetrics {
+                    let result = await plugin.evaluateAlert(metricKey: metric.key, context: context)
+                    if case .firing(let message) = result {
+                        await MainActor.run {
+                            alertManager.firePluginAlert(
+                                key: "plugin-\(sid)-\(container.id)-\(metric.key)",
+                                serverName: sname,
+                                title: metric.displayName,
+                                body: message,
+                                serverID: sid
+                            )
+                        }
+                    }
+                }
+            }
+        }
     }
 
     // MARK: - Status Derivation

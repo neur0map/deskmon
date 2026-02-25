@@ -2,20 +2,24 @@ import SwiftUI
 
 struct SettingsView: View {
     @Environment(ServerManager.self) private var serverManager
+    @Environment(AlertManager.self) private var alertManager
     @State private var showingAddServer = false
     @State private var editingServer: ServerInfo?
 
     var body: some View {
-        TabView {
-            Tab("Servers", systemImage: "server.rack") {
+        TabView(selection: Binding(
+            get: { alertManager.selectedSettingsTab },
+            set: { alertManager.selectedSettingsTab = $0 }
+        )) {
+            Tab("Servers", systemImage: "server.rack", value: "servers") {
                 serversTab
             }
 
-            Tab("Alerts", systemImage: "bell.badge") {
+            Tab("Alerts", systemImage: "bell.badge", value: "alerts") {
                 AlertConfigView()
             }
 
-            Tab("General", systemImage: "gear") {
+            Tab("General", systemImage: "gear", value: "general") {
                 generalTab
             }
         }
