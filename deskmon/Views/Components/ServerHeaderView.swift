@@ -4,44 +4,47 @@ struct ServerHeaderView: View {
     let server: ServerInfo
 
     var body: some View {
-        HStack(spacing: 10) {
-            Image(systemName: "server.rack")
-                .font(.title2)
-                .foregroundStyle(.primary)
-
-            VStack(alignment: .leading, spacing: 2) {
+        VStack(alignment: .leading) {
+            HStack(spacing: 12){
+                Image(systemName: "server.rack")
+                    .font(.title2)
+                    .foregroundStyle(.primary)
                 Text(server.name)
                     .font(.headline)
-
-                HStack(spacing: 6) {
-                    HStack(spacing: 4) {
-                        Circle()
-                            .fill(server.status.color)
-                            .frame(width: 7, height: 7)
-                            .animation(.smooth, value: server.status)
-                        Text(server.status.label)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-
-                    if let stats = server.stats {
-                        Text("Up \(ByteFormatter.formatUptime(stats.uptimeSeconds))")
-                            .font(.caption)
-                            .foregroundStyle(.tertiary)
-                            .padding(.horizontal, 6)
-                            .padding(.vertical, 2)
-                            .background(Theme.cardBorder, in: Capsule())
-                    }
-                }
             }
-
-            Spacer()
-
-            Text(server.host)
-                .font(.caption.monospacedDigit())
-                .foregroundStyle(.tertiary)
+            
+            HStack(spacing: 12) {
+                HStack(spacing: 8) {
+                    Circle()
+                        .fill(server.status.color)
+                        .frame(width: 10, height: 10)
+                        .animation(.smooth, value: server.status)
+                    Text(server.status.label)
+                        .font(.subheadline.weight(.medium))
+                }
+                
+                Divider().frame(height: 16).overlay(Theme.cardBorder)
+                
+                Label("\(server.username)@\(server.host)", systemImage: "network")
+                    .font(.subheadline.monospacedDigit())
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                
+                if let stats = server.stats {
+                    Divider().frame(height: 16).overlay(Theme.cardBorder)
+                    
+                    Label("Up \(ByteFormatter.formatUptime(stats.uptimeSeconds))", systemImage: "clock")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                }
+                
+                Spacer(minLength: 0)
+            }
         }
-        .padding(12)
+        .colorScheme(.dark)
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
         .tintedCardStyle(cornerRadius: 12, tint: server.status.color)
     }
 }

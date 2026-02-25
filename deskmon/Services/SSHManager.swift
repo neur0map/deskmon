@@ -23,6 +23,7 @@ final class SSHManager {
 
     private var sshClient: SSHClient?
     private var localServer: Channel?
+    private var extraTunnels: [Int: (channel: Channel, localPort: Int)] = [:]
     private let group = MultiThreadedEventLoopGroup.singleton
     private var disconnectCallbacks: [@Sendable () -> Void] = []
 
@@ -131,10 +132,48 @@ final class SSHManager {
         Self.log.info("Tunnel open on 127.0.0.1:\(port) → \(remoteHost):\(remotePort)")
     }
 
+    // MARK: - Extra Tunnels (for plugins)
+
+    /// Open (or reuse) an additional SSH tunnel to `remotePort` on the remote host.
+    /// Returns the local base URL, e.g. `"http://127.0.0.1:54321"`.
+    func openExtraTunnel(remotePort: Int) async throws -> String {
+        if let existing = extraTunnels[remotePort] {
+            return "http://127.0.0.1:\(existing.localPort)"
+        }
+
+        guard let client = sshClient, client.isConnected else {
+            throw SSHTunnelError.notConnected
+        }
+
+        let bootstrap = ServerBootstrap(group: group)
+            .serverChannelOption(.backlog, value: 8)
+            .childChannelOption(.allowRemoteHalfClosure, value: true)
+            .childChannelInitializer { [client] localChannel in
+                let handler = TunnelBridgeHandler(
+                    sshClient: client,
+                    remoteHost: "127.0.0.1",
+                    remotePort: remotePort
+                )
+                return localChannel.pipeline.addHandler(handler)
+            }
+
+        let serverChannel = try await bootstrap.bind(host: "127.0.0.1", port: 0).get()
+
+        guard let port = serverChannel.localAddress?.port else {
+            try await serverChannel.close().get()
+            throw SSHTunnelError.bindFailed
+        }
+
+        extraTunnels[remotePort] = (channel: serverChannel, localPort: port)
+        Self.log.info("Extra tunnel open on 127.0.0.1:\(port) → 127.0.0.1:\(remotePort)")
+        return "http://127.0.0.1:\(port)"
+    }
+
     // MARK: - Disconnect
 
     func disconnect() {
         closeTunnel()
+        closeExtraTunnels()
 
         if let client = sshClient {
             Task.detached { [client] in
@@ -173,6 +212,13 @@ final class SSHManager {
         }
     }
 
+    private func closeExtraTunnels() {
+        for (_, tunnel) in extraTunnels {
+            try? tunnel.channel.close().wait()
+        }
+        extraTunnels.removeAll()
+    }
+
     private func wireDisconnectHandler() {
         sshClient?.onDisconnect { [weak self] in
             Task { @MainActor [weak self] in
@@ -180,6 +226,7 @@ final class SSHManager {
                 Self.log.warning("SSH connection dropped")
                 self.localServer = nil
                 self.tunnelPort = 0
+                self.extraTunnels.removeAll()
                 self.sshClient = nil
                 self.phase = .disconnected
                 for callback in self.disconnectCallbacks {

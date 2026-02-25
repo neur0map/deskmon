@@ -3,6 +3,17 @@ import Foundation
 import os
 import SwiftUI
 
+// Codable snapshot of the fields that need to survive across launches.
+private struct ServerConfig: Codable {
+    let id: UUID
+    let name: String
+    let host: String
+    let username: String
+    let sshPort: Int
+    let agentPort: Int
+    let hasKeyInstalled: Bool
+}
+
 @MainActor
 @Observable
 final class ServerManager {
@@ -12,9 +23,12 @@ final class ServerManager {
     var alertManager: AlertManager?
 
     private static let log = Logger(subsystem: "prowlsh.deskmon", category: "ServerManager")
+    private static let serversKey = "savedServers"
+    private static let selectedIDKey = "selectedServerID"
     private let client = AgentClient.shared
     private var sshManagers: [UUID: SSHManager] = [:]
     private var streamTasks: [UUID: Task<Void, Never>] = [:]
+    private var pluginAlertTask: Task<Void, Never>?
 
     var selectedServer: ServerInfo? {
         servers.first { $0.id == selectedServerID }
@@ -27,6 +41,38 @@ final class ServerManager {
     /// The tunnel base URL for the selected server (used by views for actions).
     private func baseURL(for server: ServerInfo) -> String? {
         sshManagers[server.id]?.tunnelBaseURL
+    }
+
+    // MARK: - Persistence
+
+    init() {
+        if let data = UserDefaults.standard.data(forKey: Self.serversKey),
+           let configs = try? JSONDecoder().decode([ServerConfig].self, from: data) {
+            servers = configs.map {
+                ServerInfo(id: $0.id, name: $0.name, host: $0.host, username: $0.username,
+                           sshPort: $0.sshPort, agentPort: $0.agentPort, hasKeyInstalled: $0.hasKeyInstalled)
+            }
+        }
+        if let data = UserDefaults.standard.data(forKey: Self.selectedIDKey),
+           let id = try? JSONDecoder().decode(UUID.self, from: data),
+           servers.contains(where: { $0.id == id }) {
+            selectedServerID = id
+        } else {
+            selectedServerID = servers.first?.id
+        }
+    }
+
+    private func saveToDisk() {
+        let configs = servers.map {
+            ServerConfig(id: $0.id, name: $0.name, host: $0.host, username: $0.username,
+                         sshPort: $0.sshPort, agentPort: $0.agentPort, hasKeyInstalled: $0.hasKeyInstalled)
+        }
+        if let data = try? JSONEncoder().encode(configs) {
+            UserDefaults.standard.set(data, forKey: Self.serversKey)
+        }
+        if let data = try? JSONEncoder().encode(selectedServerID) {
+            UserDefaults.standard.set(data, forKey: Self.selectedIDKey)
+        }
     }
 
     // MARK: - SSH Connection
@@ -73,6 +119,53 @@ final class ServerManager {
         startStream(for: server)
 
         // Background: generate and install SSH key
+        Task {
+            await installSSHKey(for: server, ssh: ssh)
+        }
+    }
+
+    /// Connect to a server using SSH key file data for authentication.
+    /// Called from AddServerSheet when the user selects an SSH key file.
+    func connectServer(_ server: ServerInfo, keyData: Data, passphrase: String? = nil) async throws {
+        let ssh = SSHManager()
+        sshManagers[server.id] = ssh
+
+        server.connectionPhase = .sshConnecting
+
+        // Parse the OpenSSH private key from file data (handles encrypted keys via passphrase)
+        let privateKey = try SSHKeyGenerator.parsePrivateKey(from: keyData, passphrase: passphrase)
+
+        // SSH connect with key
+        try await ssh.connect(
+            host: server.host,
+            port: server.sshPort,
+            username: server.username,
+            privateKey: privateKey
+        )
+
+        // Open tunnel
+        try await ssh.openTunnel(remotePort: server.agentPort)
+        server.connectionPhase = .tunnelOpen
+
+        // Verify agent is reachable through tunnel
+        guard let url = ssh.tunnelBaseURL else {
+            throw SSHTunnelError.notConnected
+        }
+
+        let response = try await client.fetchStats(baseURL: url)
+        applyFullSnapshot(server: server, response: response)
+
+        // Wire disconnect handler
+        ssh.onDisconnect { [weak self] in
+            Task { @MainActor [weak self] in
+                self?.handleSSHDisconnect(serverID: server.id)
+            }
+        }
+
+        // Start SSE stream
+        startStream(for: server)
+
+        // Background: generate and install SSH key for future reconnects
         Task {
             await installSSHKey(for: server, ssh: ssh)
         }
@@ -157,10 +250,13 @@ final class ServerManager {
             guard streamTasks[server.id] == nil else { continue }
             Task { await reconnectServer(server) }
         }
+        startPluginAlertPolling()
     }
 
     /// Stops all SSE streams and SSH connections.
     func stopStreaming() {
+        pluginAlertTask?.cancel()
+        pluginAlertTask = nil
         for (_, task) in streamTasks {
             task.cancel()
         }
@@ -366,6 +462,7 @@ final class ServerManager {
             try await SSHKeyGenerator.installPublicKey(on: ssh, authorizedKeysLine: keyPair.authorizedKeysLine)
             try KeychainStore.savePrivateKey(keyPair.privateKeyData, for: server.id)
             server.hasKeyInstalled = true
+            saveToDisk()
             Self.log.info("SSH key installed for \(server.name)")
         } catch {
             Self.log.error("SSH key install failed for \(server.name): \(error.localizedDescription)")
@@ -380,6 +477,7 @@ final class ServerManager {
         if selectedServerID == nil {
             selectedServerID = server.id
         }
+        saveToDisk()
         return server
     }
 
@@ -390,6 +488,7 @@ final class ServerManager {
         server.host = host
         server.username = username
         server.sshPort = sshPort
+        saveToDisk()
 
         if connectionChanged {
             // Disconnect and reconnect with new settings
@@ -413,11 +512,13 @@ final class ServerManager {
         if selectedServerID == server.id {
             selectedServerID = servers.first?.id
         }
+        saveToDisk()
     }
 
     func selectServer(_ server: ServerInfo) {
         selectedServerID = server.id
         isConnected = server.status != .offline && server.status != .unauthorized
+        saveToDisk()
     }
 
     // MARK: - Server Actions
@@ -453,6 +554,73 @@ final class ServerManager {
         guard let server = selectedServer,
               let url = baseURL(for: server) else { throw AgentError.invalidURL }
         return try await client.restartAgent(baseURL: url)
+    }
+
+    /// Open (or reuse) an SSH tunnel to a remote service port for the given server.
+    /// Used by container plugins to reach services running alongside the deskmon agent.
+    func pluginTunnelURL(for serverID: UUID, remotePort: Int) async throws -> String {
+        guard let ssh = sshManagers[serverID] else { throw SSHTunnelError.notConnected }
+        return try await ssh.openExtraTunnel(remotePort: remotePort)
+    }
+
+    /// Execute a shell command on the given server over SSH and return its stdout.
+    func executeCommand(_ command: String, on serverID: UUID) async throws -> String {
+        guard let ssh = sshManagers[serverID] else { throw SSHTunnelError.notConnected }
+        return try await ssh.executeCommand(command)
+    }
+
+    /// Execute a shell command on the currently selected server over SSH and return its stdout.
+    func executeCommand(_ command: String) async throws -> String {
+        guard let server = selectedServer,
+              let ssh = sshManagers[server.id] else { throw SSHTunnelError.notConnected }
+        return try await ssh.executeCommand(command)
+    }
+
+    // MARK: - Plugin Alert Polling
+
+    private func startPluginAlertPolling() {
+        pluginAlertTask?.cancel()
+        pluginAlertTask = Task { [weak self] in
+            do { try await Task.sleep(for: .seconds(30)) } catch { return }  // initial delay
+            while !Task.isCancelled {
+                await self?.pollPluginAlerts()
+                do { try await Task.sleep(for: .seconds(60)) } catch { return }
+            }
+        }
+    }
+
+    private func pollPluginAlerts() async {
+        guard let alertManager else { return }
+        for server in servers where server.connectionPhase == .live {
+            guard alertManager.config(for: server.id).pluginAlertsEnabled else { continue }
+            let sid = server.id
+            let sname = server.name
+            for container in server.containers where container.status == .running {
+                guard let plugin = PluginRegistry.shared.plugin(for: container.image),
+                      !plugin.alertMetrics.isEmpty else { continue }
+                let context = PluginAlertContext(
+                    serverID: sid, container: container,
+                    getURL: { [weak self] port in
+                        guard let self else { throw URLError(.cancelled) }
+                        return try await self.pluginTunnelURL(for: sid, remotePort: port)
+                    }
+                )
+                for metric in plugin.alertMetrics {
+                    let result = await plugin.evaluateAlert(metricKey: metric.key, context: context)
+                    if case .firing(let message) = result {
+                        await MainActor.run {
+                            alertManager.firePluginAlert(
+                                key: "plugin-\(sid)-\(container.id)-\(metric.key)",
+                                serverName: sname,
+                                title: metric.displayName,
+                                body: message,
+                                serverID: sid
+                            )
+                        }
+                    }
+                }
+            }
+        }
     }
 
     // MARK: - Status Derivation

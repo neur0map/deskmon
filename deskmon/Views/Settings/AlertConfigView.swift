@@ -6,6 +6,9 @@ struct AlertConfigView: View {
     @Environment(AlertManager.self) private var alertManager
     @State private var selectedServerID: UUID?
     @State private var notificationStatus: UNAuthorizationStatus = .notDetermined
+    @State private var showSlackURL = false
+    @State private var showDiscordURL = false
+    @State private var showGenericURL = false
 
     private var selectedServer: ServerInfo? {
         serverManager.servers.first { $0.id == selectedServerID }
@@ -110,82 +113,435 @@ struct AlertConfigView: View {
             if let serverID = selectedServerID {
                 let config = alertManager.config(for: serverID)
 
-                alertRow(
-                    icon: "cpu",
-                    title: "CPU",
-                    tint: Theme.cpu,
-                    enabled: config.cpuEnabled,
-                    threshold: config.cpuThreshold,
-                    sustained: config.cpuSustained,
-                    unit: "%",
-                    thresholdRange: 50...100,
-                    sustainedRange: 5...120,
-                    onToggle: { v in setConfig(serverID) { $0.cpuEnabled = v } },
-                    onThreshold: { v in setConfig(serverID) { $0.cpuThreshold = v } },
-                    onSustained: { v in setConfig(serverID) { $0.cpuSustained = v } }
-                )
+                // --- System + Container alert rows ---
+                VStack(spacing: 0) {
+                    alertRow(
+                        icon: "cpu",
+                        title: "CPU",
+                        tint: Theme.cpu,
+                        enabled: config.cpuEnabled,
+                        threshold: config.cpuThreshold,
+                        sustained: config.cpuSustained,
+                        unit: "%",
+                        thresholdRange: 50...100,
+                        sustainedRange: 5...120,
+                        onToggle: { v in setConfig(serverID) { $0.cpuEnabled = v } },
+                        onThreshold: { v in setConfig(serverID) { $0.cpuThreshold = v } },
+                        onSustained: { v in setConfig(serverID) { $0.cpuSustained = v } }
+                    )
 
+                    Divider().overlay(Theme.cardBorder)
+
+                    alertRow(
+                        icon: "memorychip",
+                        title: "Memory",
+                        tint: Theme.memory,
+                        enabled: config.memoryEnabled,
+                        threshold: config.memoryThreshold,
+                        sustained: config.memorySustained,
+                        unit: "%",
+                        thresholdRange: 50...100,
+                        sustainedRange: 5...120,
+                        onToggle: { v in setConfig(serverID) { $0.memoryEnabled = v } },
+                        onThreshold: { v in setConfig(serverID) { $0.memoryThreshold = v } },
+                        onSustained: { v in setConfig(serverID) { $0.memorySustained = v } }
+                    )
+
+                    Divider().overlay(Theme.cardBorder)
+
+                    alertRow(
+                        icon: "internaldrive",
+                        title: "Disk",
+                        tint: Theme.disk,
+                        enabled: config.diskEnabled,
+                        threshold: config.diskThreshold,
+                        sustained: nil,
+                        unit: "%",
+                        thresholdRange: 50...100,
+                        sustainedRange: nil,
+                        onToggle: { v in setConfig(serverID) { $0.diskEnabled = v } },
+                        onThreshold: { v in setConfig(serverID) { $0.diskThreshold = v } },
+                        onSustained: nil
+                    )
+
+                    Divider().overlay(Theme.cardBorder)
+
+                    simpleToggleRow(
+                        icon: "shippingbox",
+                        title: "Container Down",
+                        subtitle: "Alert when a running container stops",
+                        tint: Theme.warning,
+                        enabled: config.containerDownEnabled,
+                        onToggle: { v in setConfig(serverID) { $0.containerDownEnabled = v } }
+                    )
+
+                    Divider().overlay(Theme.cardBorder)
+
+                    alertRow(
+                        icon: "network",
+                        title: "Network Errors",
+                        tint: Theme.critical,
+                        enabled: config.networkErrorsEnabled,
+                        threshold: nil,
+                        sustained: config.networkErrorsSustained,
+                        unit: nil,
+                        thresholdRange: nil,
+                        sustainedRange: 5...60,
+                        onToggle: { v in setConfig(serverID) { $0.networkErrorsEnabled = v } },
+                        onThreshold: nil,
+                        onSustained: { v in setConfig(serverID) { $0.networkErrorsSustained = v } }
+                    )
+
+                    Divider().overlay(Theme.cardBorder)
+
+                    alertRow(
+                        icon: "shippingbox.fill",
+                        title: "Container CPU",
+                        tint: Theme.cpu,
+                        enabled: config.containerCPUEnabled,
+                        threshold: config.containerCPUThreshold,
+                        sustained: config.containerCPUSustained,
+                        unit: "%",
+                        thresholdRange: 50...100,
+                        sustainedRange: 10...120,
+                        onToggle: { v in setConfig(serverID) { $0.containerCPUEnabled = v } },
+                        onThreshold: { v in setConfig(serverID) { $0.containerCPUThreshold = v } },
+                        onSustained: { v in setConfig(serverID) { $0.containerCPUSustained = v } }
+                    )
+
+                    Divider().overlay(Theme.cardBorder)
+
+                    alertRow(
+                        icon: "shippingbox.fill",
+                        title: "Container Memory",
+                        tint: Theme.memory,
+                        enabled: config.containerMemoryEnabled,
+                        threshold: config.containerMemoryThreshold,
+                        sustained: config.containerMemorySustained,
+                        unit: "%",
+                        thresholdRange: 50...100,
+                        sustainedRange: 10...120,
+                        onToggle: { v in setConfig(serverID) { $0.containerMemoryEnabled = v } },
+                        onThreshold: { v in setConfig(serverID) { $0.containerMemoryThreshold = v } },
+                        onSustained: { v in setConfig(serverID) { $0.containerMemorySustained = v } }
+                    )
+
+                    Divider().overlay(Theme.cardBorder)
+
+                    simpleToggleRow(
+                        icon: "heart.slash",
+                        title: "Container Unhealthy",
+                        subtitle: "Alert when a container's health check starts failing",
+                        tint: Theme.critical,
+                        enabled: config.containerUnhealthyEnabled,
+                        onToggle: { v in setConfig(serverID) { $0.containerUnhealthyEnabled = v } }
+                    )
+
+                    Divider().overlay(Theme.cardBorder)
+
+                    simpleToggleRow(
+                        icon: "arrow.clockwise.circle",
+                        title: "Container Restart Spike",
+                        subtitle: "Alert when a container exceeds \(config.containerRestartThreshold) restarts",
+                        tint: Theme.warning,
+                        enabled: config.containerRestartSpikeEnabled,
+                        onToggle: { v in setConfig(serverID) { $0.containerRestartSpikeEnabled = v } }
+                    )
+
+                    Divider().overlay(Theme.cardBorder)
+
+                    simpleToggleRow(
+                        icon: "puzzlepiece.extension",
+                        title: "Plugin Alerts",
+                        subtitle: "Enable alerts defined by container plugins (e.g. n8n execution failures)",
+                        tint: Theme.accent,
+                        enabled: config.pluginAlertsEnabled,
+                        onToggle: { v in setConfig(serverID) { $0.pluginAlertsEnabled = v } }
+                    )
+                }
+                .cardStyle(cornerRadius: 12)
+
+                // --- Slack section ---
+                slackSection(serverID: serverID, config: config)
+
+                // --- Discord section ---
+                discordSection(serverID: serverID, config: config)
+
+                // --- Generic webhook section ---
+                genericWebhookSection(serverID: serverID, config: config)
+
+                // --- Alert history ---
+                alertHistorySection
+            }
+        }
+    }
+
+    // MARK: - Slack Section
+
+    private func slackSection(serverID: UUID, config: AlertConfig) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(spacing: 8) {
+                Image(systemName: "message.badge.filled.fill")
+                    .font(.caption)
+                    .foregroundStyle(Theme.healthy)
+                    .frame(width: 16)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Slack Notifications")
+                        .font(.subheadline.weight(.medium))
+                    Text("Send alerts to a Slack channel via Incoming Webhook")
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
+                }
+                WebhookInfoButton(
+                    title: "Setting up Slack",
+                    message: "1. Go to api.slack.com/apps and create a new app.\n2. Under Incoming Webhooks, enable it and click Add New Webhook to Workspace.\n3. Select a channel and copy the Webhook URL."
+                )
+                Spacer()
+                Toggle("", isOn: Binding(
+                    get: { config.slackEnabled },
+                    set: { v in setConfig(serverID) { $0.slackEnabled = v } }
+                ))
+                .toggleStyle(.switch)
+                .controlSize(.mini)
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 10)
+
+            if config.slackEnabled {
                 Divider().overlay(Theme.cardBorder)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Webhook URL")
+                        .font(.caption.weight(.medium))
+                        .foregroundStyle(.secondary)
+                    HStack(spacing: 6) {
+                        Group {
+                            if showSlackURL {
+                                TextField("https://hooks.slack.com/services/...", text: Binding(
+                                    get: { config.slackWebhookURL },
+                                    set: { v in setConfig(serverID) { $0.slackWebhookURL = v } }
+                                ))
+                            } else {
+                                SecureField("https://hooks.slack.com/services/...", text: Binding(
+                                    get: { config.slackWebhookURL },
+                                    set: { v in setConfig(serverID) { $0.slackWebhookURL = v } }
+                                ))
+                            }
+                        }
+                        .textFieldStyle(.roundedBorder)
+                        .font(.caption.monospaced())
 
-                alertRow(
-                    icon: "memorychip",
-                    title: "Memory",
-                    tint: Theme.memory,
-                    enabled: config.memoryEnabled,
-                    threshold: config.memoryThreshold,
-                    sustained: config.memorySustained,
-                    unit: "%",
-                    thresholdRange: 50...100,
-                    sustainedRange: 5...120,
-                    onToggle: { v in setConfig(serverID) { $0.memoryEnabled = v } },
-                    onThreshold: { v in setConfig(serverID) { $0.memoryThreshold = v } },
-                    onSustained: { v in setConfig(serverID) { $0.memorySustained = v } }
+                        Button {
+                            showSlackURL.toggle()
+                        } label: {
+                            Image(systemName: showSlackURL ? "eye.slash" : "eye")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+                .padding(.horizontal, 14)
+                .padding(.vertical, 10)
+                .transition(.opacity.combined(with: .move(edge: .top)))
+            }
+        }
+        .cardStyle(cornerRadius: 12)
+        .animation(.smooth(duration: 0.25), value: config.slackEnabled)
+    }
+
+    // MARK: - Discord Section
+
+    private func discordSection(serverID: UUID, config: AlertConfig) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(spacing: 8) {
+                Image(systemName: "ellipsis.bubble.fill")
+                    .font(.caption)
+                    .foregroundStyle(Color(red: 0.35, green: 0.40, blue: 0.93))
+                    .frame(width: 16)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Discord Notifications")
+                        .font(.subheadline.weight(.medium))
+                    Text("Send alerts to a Discord channel via Incoming Webhook")
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
+                }
+                WebhookInfoButton(
+                    title: "Setting up Discord",
+                    message: "1. In Discord, right-click a channel and choose Edit Channel.\n2. Go to Integrations → Webhooks → New Webhook.\n3. Name it, optionally set an avatar, and copy the Webhook URL."
                 )
+                Spacer()
+                Toggle("", isOn: Binding(
+                    get: { config.discordEnabled },
+                    set: { v in setConfig(serverID) { $0.discordEnabled = v } }
+                ))
+                .toggleStyle(.switch)
+                .controlSize(.mini)
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 10)
 
+            if config.discordEnabled {
                 Divider().overlay(Theme.cardBorder)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Webhook URL")
+                        .font(.caption.weight(.medium))
+                        .foregroundStyle(.secondary)
+                    HStack(spacing: 6) {
+                        Group {
+                            if showDiscordURL {
+                                TextField("https://discord.com/api/webhooks/...", text: Binding(
+                                    get: { config.discordWebhookURL },
+                                    set: { v in setConfig(serverID) { $0.discordWebhookURL = v } }
+                                ))
+                            } else {
+                                SecureField("https://discord.com/api/webhooks/...", text: Binding(
+                                    get: { config.discordWebhookURL },
+                                    set: { v in setConfig(serverID) { $0.discordWebhookURL = v } }
+                                ))
+                            }
+                        }
+                        .textFieldStyle(.roundedBorder)
+                        .font(.caption.monospaced())
+                        Button { showDiscordURL.toggle() } label: {
+                            Image(systemName: showDiscordURL ? "eye.slash" : "eye")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+                .padding(.horizontal, 14)
+                .padding(.vertical, 10)
+                .transition(.opacity.combined(with: .move(edge: .top)))
+            }
+        }
+        .cardStyle(cornerRadius: 12)
+        .animation(.smooth(duration: 0.25), value: config.discordEnabled)
+    }
 
-                alertRow(
-                    icon: "internaldrive",
-                    title: "Disk",
-                    tint: Theme.disk,
-                    enabled: config.diskEnabled,
-                    threshold: config.diskThreshold,
-                    sustained: nil,
-                    unit: "%",
-                    thresholdRange: 50...100,
-                    sustainedRange: nil,
-                    onToggle: { v in setConfig(serverID) { $0.diskEnabled = v } },
-                    onThreshold: { v in setConfig(serverID) { $0.diskThreshold = v } },
-                    onSustained: nil
+    // MARK: - Generic Webhook Section
+
+    private func genericWebhookSection(serverID: UUID, config: AlertConfig) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(spacing: 8) {
+                Image(systemName: "bolt.horizontal.fill")
+                    .font(.caption)
+                    .foregroundStyle(Theme.accent)
+                    .frame(width: 16)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Generic Webhook")
+                        .font(.subheadline.weight(.medium))
+                    Text("POST alert data as JSON to any HTTP endpoint")
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
+                }
+                WebhookInfoButton(
+                    title: "Generic Webhook",
+                    message: "deskmon will POST the following JSON to your URL on every alert:\n\n{\n  \"serverName\": \"...\",\n  \"title\": \"...\",\n  \"body\": \"...\",\n  \"timestamp\": \"...\"\n}\n\nCompatible with Zapier, Make, n8n, or any HTTP endpoint."
                 )
+                Spacer()
+                Toggle("", isOn: Binding(
+                    get: { config.genericWebhookEnabled },
+                    set: { v in setConfig(serverID) { $0.genericWebhookEnabled = v } }
+                ))
+                .toggleStyle(.switch)
+                .controlSize(.mini)
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 10)
 
+            if config.genericWebhookEnabled {
                 Divider().overlay(Theme.cardBorder)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Webhook URL")
+                        .font(.caption.weight(.medium))
+                        .foregroundStyle(.secondary)
+                    HStack(spacing: 6) {
+                        Group {
+                            if showGenericURL {
+                                TextField("https://...", text: Binding(
+                                    get: { config.genericWebhookURL },
+                                    set: { v in setConfig(serverID) { $0.genericWebhookURL = v } }
+                                ))
+                            } else {
+                                SecureField("https://...", text: Binding(
+                                    get: { config.genericWebhookURL },
+                                    set: { v in setConfig(serverID) { $0.genericWebhookURL = v } }
+                                ))
+                            }
+                        }
+                        .textFieldStyle(.roundedBorder)
+                        .font(.caption.monospaced())
+                        Button { showGenericURL.toggle() } label: {
+                            Image(systemName: showGenericURL ? "eye.slash" : "eye")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+                .padding(.horizontal, 14)
+                .padding(.vertical, 10)
+                .transition(.opacity.combined(with: .move(edge: .top)))
+            }
+        }
+        .cardStyle(cornerRadius: 12)
+        .animation(.smooth(duration: 0.25), value: config.genericWebhookEnabled)
+    }
 
-                simpleToggleRow(
-                    icon: "shippingbox",
-                    title: "Container Down",
-                    subtitle: "Alert when a running container stops",
-                    tint: Theme.warning,
-                    enabled: config.containerDownEnabled,
-                    onToggle: { v in setConfig(serverID) { $0.containerDownEnabled = v } }
-                )
+    // MARK: - Alert History
 
-                Divider().overlay(Theme.cardBorder)
+    private var alertHistorySection: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack {
+                Label("Recent Alerts", systemImage: "bell.badge")
+                    .font(.subheadline.weight(.medium))
+                Spacer()
+                if alertManager.hasUnacknowledgedAlerts {
+                    Button("Clear") { alertManager.clearAlerts() }
+                        .font(.caption)
+                        .foregroundStyle(Theme.accent)
+                        .buttonStyle(.plain)
+                }
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 10)
 
-                alertRow(
-                    icon: "network",
-                    title: "Network Errors",
-                    tint: Theme.critical,
-                    enabled: config.networkErrorsEnabled,
-                    threshold: nil,
-                    sustained: config.networkErrorsSustained,
-                    unit: nil,
-                    thresholdRange: nil,
-                    sustainedRange: 5...60,
-                    onToggle: { v in setConfig(serverID) { $0.networkErrorsEnabled = v } },
-                    onThreshold: nil,
-                    onSustained: { v in setConfig(serverID) { $0.networkErrorsSustained = v } }
-                )
+            Divider().overlay(Theme.cardBorder)
+
+            if alertManager.recentAlerts.isEmpty {
+                Text("No alerts fired this session")
+                    .font(.caption)
+                    .foregroundStyle(.quaternary)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 14)
+            } else {
+                let displayed = Array(alertManager.recentAlerts.prefix(10))
+                VStack(spacing: 0) {
+                    ForEach(displayed) { alert in
+                        HStack(spacing: 8) {
+                            Circle()
+                                .fill(Theme.critical)
+                                .frame(width: 6, height: 6)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("\(alert.serverName) — \(alert.title)")
+                                    .font(.caption.weight(.medium))
+                                Text(alert.body)
+                                    .font(.caption2)
+                                    .foregroundStyle(.secondary)
+                            }
+                            Spacer()
+                            Text(alert.timestamp, style: .relative)
+                                .font(.caption2)
+                                .foregroundStyle(.tertiary)
+                        }
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 8)
+                        if alert.id != displayed.last?.id {
+                            Divider().overlay(Theme.cardBorder)
+                        }
+                    }
+                }
             }
         }
         .cardStyle(cornerRadius: 12)
@@ -346,16 +702,40 @@ struct AlertConfigView: View {
     }
 
     private func sendTestNotification() {
-        let content = UNMutableNotificationContent()
-        content.title = "Deskmon — Test Alert"
-        content.body = "Notifications are working correctly."
-        content.sound = .default
+        guard let serverID = selectedServerID,
+              let server = serverManager.servers.first(where: { $0.id == serverID }) else {
+            return
+        }
+        alertManager.fireTestAlert(serverID: serverID, serverName: server.name)
+    }
+}
 
-        let request = UNNotificationRequest(
-            identifier: "test-\(Date().timeIntervalSince1970)",
-            content: content,
-            trigger: nil
-        )
-        UNUserNotificationCenter.current().add(request)
+// MARK: - Webhook Info Button
+
+private struct WebhookInfoButton: View {
+    let title: String
+    let message: String
+    @State private var showing = false
+
+    var body: some View {
+        Button { showing = true } label: {
+            Image(systemName: "info.circle")
+                .font(.caption2)
+                .foregroundStyle(.tertiary)
+        }
+        .buttonStyle(.plain)
+        .popover(isPresented: $showing, arrowEdge: .trailing) {
+            VStack(alignment: .leading, spacing: 8) {
+                Text(title)
+                    .font(.caption.weight(.semibold))
+                Text(message)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .padding(14)
+            .frame(width: 280)
+            .preferredColorScheme(.dark)
+        }
     }
 }
