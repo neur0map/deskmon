@@ -6,6 +6,10 @@ struct deskmonApp: App {
     @State private var lockManager = AppLockManager()
     @State private var alertManager = AlertManager()
 
+    init() {
+        PluginRegistry.shared.register(N8nPlugin())
+    }
+
     var body: some Scene {
         MenuBarExtra {
             DashboardView()
@@ -15,6 +19,7 @@ struct deskmonApp: App {
                 .task {
                     serverManager.alertManager = alertManager
                     alertManager.requestPermissionIfNeeded()
+                    serverManager.startStreaming()
                 }
         } label: {
             MenuBarLabel(status: serverManager.currentStatus)

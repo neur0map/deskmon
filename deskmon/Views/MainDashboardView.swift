@@ -9,6 +9,8 @@ struct MainDashboardView: View {
     @State private var selectedProcess: ProcessInfo?
     @State private var isRestartingAgent = false
     @State private var restartFeedback: String?
+    @State private var inspectorIdealWidth: Double = 280
+    @State private var inspectorMinWidth: Double = 200
 
     var body: some View {
         ZStack {
@@ -85,20 +87,11 @@ struct MainDashboardView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .innerPanel()
             .padding(6)
-
-            // Right Detail Panel (Container or Process)
-            if let container = liveSelectedContainer {
-                detailSidebar(title: "Container") {
-                    withAnimation(.smooth(duration: 0.25)) { selectedContainer = nil }
-                } content: {
-                    ContainerDetailView(container: container)
-                }
-            } else if let process = liveSelectedProcess {
-                detailSidebar(title: "Process") {
-                    withAnimation(.smooth(duration: 0.25)) { selectedProcess = nil }
-                } content: {
-                    ProcessDetailView(process: process)
-                }
+            .inspector(isPresented: Binding(
+                get: { liveSelectedContainer != nil || liveSelectedProcess != nil },
+                set: { if !$0 { withAnimation(.smooth(duration: 0.25)) { selectedContainer = nil; selectedProcess = nil } } }
+            )) {
+                inspectorContent
             }
         }
         .background(Theme.background)
@@ -107,6 +100,7 @@ struct MainDashboardView: View {
                 AppLockView(surface: .window)
             }
         }
+        .environment(\.colorScheme, .dark)
         .preferredColorScheme(.dark)
         .sheet(isPresented: $showingAddServer) {
             AddServerSheet()
@@ -116,6 +110,8 @@ struct MainDashboardView: View {
         }
         .onAppear {
             NSApp.setActivationPolicy(.regular)
+            let v = UserDefaults.standard.double(forKey: "inspectorWidth")
+            if v >= 200 { inspectorIdealWidth = v }
         }
         .onDisappear {
             NSApp.setActivationPolicy(.accessory)
@@ -124,6 +120,14 @@ struct MainDashboardView: View {
         .onReceive(NSWorkspace.shared.notificationCenter.publisher(for: NSWorkspace.didWakeNotification)) { _ in
             lockManager.lockAllSurfaces()
             serverManager.startStreaming()
+        }
+    }
+
+    private func pinInspectorWidth() {
+        inspectorMinWidth = inspectorIdealWidth
+        Task {
+            try? await Task.sleep(for: .milliseconds(150))
+            inspectorMinWidth = 200
         }
     }
 
@@ -262,32 +266,34 @@ struct MainDashboardView: View {
         return server.processes.first { $0.pid == selected.pid } ?? selected
     }
 
-    private func detailSidebar<Content: View>(title: String, onClose: @escaping () -> Void, @ViewBuilder content: () -> Content) -> some View {
-        VStack(spacing: 0) {
-            HStack {
-                Text(title)
-                    .font(.subheadline.weight(.medium))
-                    .foregroundStyle(.secondary)
-                Spacer()
-                Button(action: onClose) {
-                    Image(systemName: "xmark.circle.fill")
-                        .font(.body)
-                        .foregroundStyle(.secondary)
-                        .contentShape(.rect)
-                        .frame(width: 28, height: 28)
-                }
-                .buttonStyle(.plain)
-            }
-            .padding(.horizontal, 14)
-            .padding(.vertical, 10)
-
-            Divider().overlay(Theme.cardBorder)
-
-            content()
+    @ViewBuilder
+    private var inspectorContent: some View {
+        if let container = liveSelectedContainer {
+            ContainerDetailView(container: container)
+                .inspectorColumnWidth(min: inspectorMinWidth, ideal: inspectorIdealWidth, max: 560)
+                .navigationTitle("Container")
+                .background(inspectorWidthSensor)
+        } else if let process = liveSelectedProcess {
+            ProcessDetailView(process: process)
+                .inspectorColumnWidth(min: inspectorMinWidth, ideal: inspectorIdealWidth, max: 560)
+                .navigationTitle("Process")
+                .background(inspectorWidthSensor)
         }
-        .frame(width: 240)
-        .background(Color.white.opacity(0.04))
-        .transition(.move(edge: .trailing).combined(with: .opacity))
+    }
+
+    private var inspectorWidthSensor: some View {
+        GeometryReader { geo in
+            Color.clear
+                .task(id: geo.size.width) {
+                    let w = geo.size.width
+                    guard w > 200 && w < 560 else { return }
+                    do { try await Task.sleep(for: .milliseconds(300)) } catch { return }
+                    guard w != inspectorIdealWidth else { return }
+                    inspectorIdealWidth = w
+                    UserDefaults.standard.set(Double(w), forKey: "inspectorWidth")
+                }
+        }
+        .allowsHitTesting(false)
     }
 
     @ViewBuilder
@@ -301,11 +307,14 @@ struct MainDashboardView: View {
 
                     networkCard(stats: stats, history: server.networkHistory)
 
+                    SecurityPanelView(serverID: server.id)
+
                     if !server.containers.isEmpty {
                         ContainerTableView(
                             containers: server.containers,
                             selectedID: selectedContainer?.id,
                             onSelect: { container in
+                                if selectedContainer == nil { pinInspectorWidth() }
                                 withAnimation(.smooth(duration: 0.25)) {
                                     selectedProcess = nil
                                     if selectedContainer?.id == container.id {
@@ -323,6 +332,7 @@ struct MainDashboardView: View {
                             processes: server.processes,
                             selectedPID: selectedProcess?.pid,
                             onSelect: { process in
+                                if selectedProcess == nil { pinInspectorWidth() }
                                 withAnimation(.smooth(duration: 0.25)) {
                                     selectedContainer = nil
                                     if selectedProcess?.pid == process.pid {
@@ -403,6 +413,7 @@ struct MainDashboardView: View {
 
             Spacer()
         }
+        .colorScheme(.dark)
         .padding(.horizontal, 14)
         .padding(.vertical, 10)
         .tintedCardStyle(cornerRadius: 12, tint: server.status.color)
@@ -414,3 +425,4 @@ struct MainDashboardView: View {
         NetworkStatsView(network: stats.network, history: history)
     }
 }
+

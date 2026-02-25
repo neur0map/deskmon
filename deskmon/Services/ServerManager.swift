@@ -3,6 +3,17 @@ import Foundation
 import os
 import SwiftUI
 
+// Codable snapshot of the fields that need to survive across launches.
+private struct ServerConfig: Codable {
+    let id: UUID
+    let name: String
+    let host: String
+    let username: String
+    let sshPort: Int
+    let agentPort: Int
+    let hasKeyInstalled: Bool
+}
+
 @MainActor
 @Observable
 final class ServerManager {
@@ -12,6 +23,8 @@ final class ServerManager {
     var alertManager: AlertManager?
 
     private static let log = Logger(subsystem: "prowlsh.deskmon", category: "ServerManager")
+    private static let serversKey = "savedServers"
+    private static let selectedIDKey = "selectedServerID"
     private let client = AgentClient.shared
     private var sshManagers: [UUID: SSHManager] = [:]
     private var streamTasks: [UUID: Task<Void, Never>] = [:]
@@ -27,6 +40,38 @@ final class ServerManager {
     /// The tunnel base URL for the selected server (used by views for actions).
     private func baseURL(for server: ServerInfo) -> String? {
         sshManagers[server.id]?.tunnelBaseURL
+    }
+
+    // MARK: - Persistence
+
+    init() {
+        if let data = UserDefaults.standard.data(forKey: Self.serversKey),
+           let configs = try? JSONDecoder().decode([ServerConfig].self, from: data) {
+            servers = configs.map {
+                ServerInfo(id: $0.id, name: $0.name, host: $0.host, username: $0.username,
+                           sshPort: $0.sshPort, agentPort: $0.agentPort, hasKeyInstalled: $0.hasKeyInstalled)
+            }
+        }
+        if let data = UserDefaults.standard.data(forKey: Self.selectedIDKey),
+           let id = try? JSONDecoder().decode(UUID.self, from: data),
+           servers.contains(where: { $0.id == id }) {
+            selectedServerID = id
+        } else {
+            selectedServerID = servers.first?.id
+        }
+    }
+
+    private func saveToDisk() {
+        let configs = servers.map {
+            ServerConfig(id: $0.id, name: $0.name, host: $0.host, username: $0.username,
+                         sshPort: $0.sshPort, agentPort: $0.agentPort, hasKeyInstalled: $0.hasKeyInstalled)
+        }
+        if let data = try? JSONEncoder().encode(configs) {
+            UserDefaults.standard.set(data, forKey: Self.serversKey)
+        }
+        if let data = try? JSONEncoder().encode(selectedServerID) {
+            UserDefaults.standard.set(data, forKey: Self.selectedIDKey)
+        }
     }
 
     // MARK: - SSH Connection
@@ -73,6 +118,53 @@ final class ServerManager {
         startStream(for: server)
 
         // Background: generate and install SSH key
+        Task {
+            await installSSHKey(for: server, ssh: ssh)
+        }
+    }
+
+    /// Connect to a server using SSH key file data for authentication.
+    /// Called from AddServerSheet when the user selects an SSH key file.
+    func connectServer(_ server: ServerInfo, keyData: Data, passphrase: String? = nil) async throws {
+        let ssh = SSHManager()
+        sshManagers[server.id] = ssh
+
+        server.connectionPhase = .sshConnecting
+
+        // Parse the OpenSSH private key from file data (handles encrypted keys via passphrase)
+        let privateKey = try SSHKeyGenerator.parsePrivateKey(from: keyData, passphrase: passphrase)
+
+        // SSH connect with key
+        try await ssh.connect(
+            host: server.host,
+            port: server.sshPort,
+            username: server.username,
+            privateKey: privateKey
+        )
+
+        // Open tunnel
+        try await ssh.openTunnel(remotePort: server.agentPort)
+        server.connectionPhase = .tunnelOpen
+
+        // Verify agent is reachable through tunnel
+        guard let url = ssh.tunnelBaseURL else {
+            throw SSHTunnelError.notConnected
+        }
+
+        let response = try await client.fetchStats(baseURL: url)
+        applyFullSnapshot(server: server, response: response)
+
+        // Wire disconnect handler
+        ssh.onDisconnect { [weak self] in
+            Task { @MainActor [weak self] in
+                self?.handleSSHDisconnect(serverID: server.id)
+            }
+        }
+
+        // Start SSE stream
+        startStream(for: server)
+
+        // Background: generate and install SSH key for future reconnects
         Task {
             await installSSHKey(for: server, ssh: ssh)
         }
@@ -366,6 +458,7 @@ final class ServerManager {
             try await SSHKeyGenerator.installPublicKey(on: ssh, authorizedKeysLine: keyPair.authorizedKeysLine)
             try KeychainStore.savePrivateKey(keyPair.privateKeyData, for: server.id)
             server.hasKeyInstalled = true
+            saveToDisk()
             Self.log.info("SSH key installed for \(server.name)")
         } catch {
             Self.log.error("SSH key install failed for \(server.name): \(error.localizedDescription)")
@@ -380,6 +473,7 @@ final class ServerManager {
         if selectedServerID == nil {
             selectedServerID = server.id
         }
+        saveToDisk()
         return server
     }
 
@@ -390,6 +484,7 @@ final class ServerManager {
         server.host = host
         server.username = username
         server.sshPort = sshPort
+        saveToDisk()
 
         if connectionChanged {
             // Disconnect and reconnect with new settings
@@ -413,11 +508,13 @@ final class ServerManager {
         if selectedServerID == server.id {
             selectedServerID = servers.first?.id
         }
+        saveToDisk()
     }
 
     func selectServer(_ server: ServerInfo) {
         selectedServerID = server.id
         isConnected = server.status != .offline && server.status != .unauthorized
+        saveToDisk()
     }
 
     // MARK: - Server Actions
@@ -453,6 +550,26 @@ final class ServerManager {
         guard let server = selectedServer,
               let url = baseURL(for: server) else { throw AgentError.invalidURL }
         return try await client.restartAgent(baseURL: url)
+    }
+
+    /// Open (or reuse) an SSH tunnel to a remote service port for the given server.
+    /// Used by container plugins to reach services running alongside the deskmon agent.
+    func pluginTunnelURL(for serverID: UUID, remotePort: Int) async throws -> String {
+        guard let ssh = sshManagers[serverID] else { throw SSHTunnelError.notConnected }
+        return try await ssh.openExtraTunnel(remotePort: remotePort)
+    }
+
+    /// Execute a shell command on the given server over SSH and return its stdout.
+    func executeCommand(_ command: String, on serverID: UUID) async throws -> String {
+        guard let ssh = sshManagers[serverID] else { throw SSHTunnelError.notConnected }
+        return try await ssh.executeCommand(command)
+    }
+
+    /// Execute a shell command on the currently selected server over SSH and return its stdout.
+    func executeCommand(_ command: String) async throws -> String {
+        guard let server = selectedServer,
+              let ssh = sshManagers[server.id] else { throw SSHTunnelError.notConnected }
+        return try await ssh.executeCommand(command)
     }
 
     // MARK: - Status Derivation

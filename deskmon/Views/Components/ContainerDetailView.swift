@@ -8,6 +8,7 @@ struct ContainerDetailView: View {
     @State private var showStopConfirmation = false
     @State private var showRestartConfirmation = false
     @State private var actionError: String?
+    @State private var showingLogs = false
 
     var body: some View {
         ScrollView {
@@ -20,6 +21,13 @@ struct ContainerDetailView: View {
                     portMappingsSection
                     networkSection
                     diskIOSection
+                }
+                if container.status == .running,
+                   let plugin = PluginRegistry.shared.plugin(for: container.image),
+                   let serverID = serverManager.selectedServerID {
+                    plugin.makeDetailView(
+                        context: PluginContext(serverID: serverID, container: container)
+                    )
                 }
             }
             .padding(16)
@@ -98,6 +106,14 @@ struct ContainerDetailView: View {
                         showRestartConfirmation = true
                     }
                 }
+
+                Spacer()
+
+                Button { showingLogs = true } label: {
+                    Label("Logs", systemImage: "doc.text")
+                }
+                .buttonStyle(.dark)
+                .font(.caption.weight(.medium))
             }
 
             if let actionError {
@@ -108,6 +124,9 @@ struct ContainerDetailView: View {
         }
         .padding(12)
         .tintedCardStyle(cornerRadius: 10, tint: Theme.accent)
+        .sheet(isPresented: $showingLogs) {
+            ContainerLogView(container: container)
+        }
     }
 
     private func actionButton(_ label: String, systemImage: String, color: Color, action: ContainerAction, onTap: @escaping () -> Void) -> some View {
